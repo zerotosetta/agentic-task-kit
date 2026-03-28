@@ -1,22 +1,56 @@
 # agentic-task-kit
 
-agentic-task-kit 프로젝트를 구현하는 메인 저장소입니다.
-제품 코드, 테스트, 실행 스크립트와 기술 문서를 이곳에서 함께 관리합니다.
+Cycle foundation MVP 를 구현하는 저장소입니다.
+이 패키지는 AX Workflow 를 구현할 수 있는 Node.js + TypeScript 라이브러리의 최소 실행 가능 범위를 제공합니다.
+
+## 현재 포함 범위
+- sequential workflow engine
+- in-memory memory store
+- in-memory artifact store
+- execution event stream
+- `TaskLogger` / `ctx.log`
+- compact CLI renderer
+- live rendering off line mode
+- sample `ReportWorkflow`
 
 ## 저장소 구성
-- `docs/`: 구현과 운영에 필요한 참고 문서
-- `src/`: 애플리케이션 소스 코드
-- `tests/`: 자동화 테스트와 시나리오
-- `scripts/`: 개발, 배포, 유지보수를 위한 보조 스크립트
+- `src/`: 라이브러리 소스 코드
+- `tests/`: unit / integration test
+- `scripts/`: example consumer runner
+- `docs/`: 로컬 실행 및 runtime 참고 문서
 
 ## 시작하기
-1. 프로젝트 목표와 핵심 사용자 흐름을 정리합니다.
-2. 사용할 시스템, 언어, 프레임워크를 확정합니다.
-3. `src/`, `tests/`, `scripts/` 를 실제 스택에 맞게 채웁니다.
-4. 첫 기능 구현 전에 로컬 실행 경로와 테스트 실행 경로를 정합니다.
+1. 의존성 설치:
+```bash
+npm install
+```
+2. 타입 검사:
+```bash
+npm run typecheck
+```
+3. 테스트 실행:
+```bash
+npm test
+```
+4. example workflow 실행:
+```bash
+npm run example
+```
 
-## 초기 체크리스트
-- 로컬 실행 명령 정의
-- 테스트 명령 정의
-- 환경 변수 목록 정리
-- 배포 대상과 릴리스 절차 정리
+## CLI renderer 빠른 사용법
+- live rendering on:
+```bash
+npm run example
+```
+- live rendering off:
+```bash
+CYCLE_LIVE=0 npm run example
+```
+- line mode 강제:
+```bash
+CYCLE_RENDER_MODE=line npm run example
+```
+
+## 문서
+- [local setup](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/local-setup.md)
+- [runtime overview](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/runtime-overview.md)

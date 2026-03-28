@@ -26,5 +26,8 @@
   "github": {
     "owner": "skyend"
   },
-  "linear": null
+  "linear": {
+    "project": "agentic-task-kit",
+    "team": "WithCodex"
+  }
 }
