@@ -131,9 +131,9 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
-- workspace root Java modernization pipeline example:
+- AXPM-hosted Java modernization pipeline example:
 ```bash
-cd /Users/fortrit/workspace/agentic-task-kit/example-project
+cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
 npm install
 npm run start
 ```
@@ -181,4 +181,4 @@ const cycle = createCycle({
 - [consumer example](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/consumer-example.md)
 - [OpenAI Chat API](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/openai-chat-api.md)
 - [sample project](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/sample-project/README.md)
-- [workspace example project](/Users/fortrit/workspace/agentic-task-kit/example-project/README.md)
+- [AXPM example project](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project/README.md)
