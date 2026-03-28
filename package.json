@@ -19,7 +19,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "example": "tsx ./scripts/run-example.ts"
+    "example": "tsx ./scripts/run-example.ts",
+    "example:consumer": "tsx ./scripts/run-consumer-example.ts"
   },
   "keywords": [
     "workflow",

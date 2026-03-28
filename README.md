@@ -36,6 +36,10 @@ npm test
 ```bash
 npm run example
 ```
+5. consumer example 실행:
+```bash
+npm run example:consumer
+```
 
 ## CLI renderer 빠른 사용법
 - live rendering on:
@@ -51,6 +55,21 @@ CYCLE_LIVE=0 npm run example
 CYCLE_RENDER_MODE=line npm run example
 ```
 
+## Examples
+- baseline sample workflow:
+```bash
+npm run example
+```
+- consumer-defined workflow:
+```bash
+npm run example:consumer
+```
+- consumer-defined workflow with line mode:
+```bash
+CYCLE_LIVE=0 npm run example:consumer
+```
+
 ## 문서
 - [local setup](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/local-setup.md)
 - [runtime overview](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/runtime-overview.md)
+- [consumer example](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/consumer-example.md)
