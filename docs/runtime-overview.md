@@ -11,6 +11,7 @@
 - structured task log channel via `ctx.log`
 - pluggable `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
 - OpenAI-compatible Chat Completions provider adapter
+- optional provider-level HTTP debug logging
 - separate config file loader for OpenAI-compatible provider
 - in-memory memory and artifact stores
 - CLI renderer with:

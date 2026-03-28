@@ -26,6 +26,7 @@ export type {
   AIChatResponse,
   AIChatStream,
   AIChatStreamChunk,
+  AIHTTPDebugLoggingOptions,
   AIChatUsage,
   AIHTTPRequestOptions,
   AIHTTPHeaders,

@@ -85,6 +85,10 @@ function toProviderOptions(
     options.defaultHeaders = { ...config.defaultHeaders };
   }
 
+  if (config.httpDebugLogging !== undefined) {
+    options.httpDebugLogging = config.httpDebugLogging;
+  }
+
   if (config.defaultModel !== undefined) {
     options.defaultModel = config.defaultModel;
   }

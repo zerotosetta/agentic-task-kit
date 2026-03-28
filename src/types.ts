@@ -117,6 +117,15 @@ export type AIHTTPRequestOptions = {
   maxRetries?: number;
 };
 
+export type AIHTTPDebugLoggingOptions = {
+  enabled?: boolean;
+  stream?: NodeJS.WriteStream;
+  includeHeaders?: boolean;
+  includeResponseHeaders?: boolean;
+  includeRequestBody?: boolean;
+  redactHeaders?: string[];
+};
+
 export type AIChatRequest = {
   model?: string;
   messages: AISessionMessage[];
@@ -368,6 +377,7 @@ export type OpenAICompatibleChatProviderOptions = {
   organization?: string;
   project?: string;
   defaultHeaders?: AIHTTPHeaders;
+  httpDebugLogging?: boolean | AIHTTPDebugLoggingOptions;
   defaultModel?: string;
   timeoutMs?: number;
   maxRetries?: number;

@@ -40,3 +40,8 @@ OPENAI_API_KEY=your_key_here \
 CYCLE_REQUEST_HEADERS_JSON='{"X-Request-ID":"sample-project-run"}' \
 npm run start
 ```
+
+HTTP debug 로그 활성화:
+```bash
+OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 npm run start
+```

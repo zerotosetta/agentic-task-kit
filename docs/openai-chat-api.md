@@ -12,6 +12,7 @@ const cycle = createCycle({
   aiProvider: createOpenAICompatibleChatProvider({
     providerName: "openai",
     defaultModel: "gpt-5.2",
+    httpDebugLogging: true,
     timeoutMs: 20_000,
     maxRetries: 2
   })
@@ -87,6 +88,19 @@ for await (const chunk of stream) {
 const response = await stream.finalResponse;
 ```
 
+HTTP debug logging:
+
+```ts
+const provider = createOpenAICompatibleChatProvider({
+  defaultModel: "gpt-5.2",
+  httpDebugLogging: {
+    includeHeaders: true,
+    includeResponseHeaders: true,
+    includeRequestBody: false
+  }
+});
+```
+
 ## 지원 설정
 - `providerName`
 - `apiKey`
@@ -94,6 +108,7 @@ const response = await stream.finalResponse;
 - `organization`
 - `project`
 - `defaultHeaders`
+- `httpDebugLogging`
 - `defaultModel`
 - `timeoutMs`
 - `maxRetries`
@@ -109,6 +124,10 @@ const response = await stream.finalResponse;
 - `OPENAI_MODEL`
 - `OPENAI_TIMEOUT_MS`
 - `OPENAI_MAX_RETRIES`
+- `OPENAI_HTTP_DEBUG`
+- `OPENAI_HTTP_DEBUG_HEADERS`
+- `OPENAI_HTTP_DEBUG_RESPONSE_HEADERS`
+- `OPENAI_HTTP_DEBUG_BODY`
 - `OPENAI_PROVIDER_NAME`
 - `OPENAI_DEFAULT_HEADERS_JSON`
 - `OPENAI_MAX_COMPLETION_TOKENS`
@@ -130,6 +149,11 @@ const response = await stream.finalResponse;
       "HTTP-Referer": "https://example.test/cycle",
       "X-Title": "Cycle Sample"
     },
+    "httpDebugLogging": {
+      "enabled": true,
+      "includeHeaders": true,
+      "includeResponseHeaders": true
+    },
     "defaultModel": "openai/gpt-5.2-mini",
     "timeoutMs": 20000,
     "maxRetries": 2
@@ -148,6 +172,7 @@ const response = await stream.finalResponse;
 - `project`
 - `projectEnv`
 - `defaultHeaders`
+- `httpDebugLogging`
 - `defaultModel`
 - `timeoutMs`
 - `maxRetries`
@@ -182,6 +207,11 @@ OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm ru
 OPENAI_API_KEY=your_key_here \
 CYCLE_REQUEST_HEADERS_JSON='{"X-Request-ID":"example-run-1"}' \
 npm run example:openai
+```
+
+HTTP debug 로그 활성화:
+```bash
+OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 npm run example:openai
 ```
 
 ## 참고

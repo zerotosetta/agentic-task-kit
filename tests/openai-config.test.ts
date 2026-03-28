@@ -95,6 +95,10 @@ describe("OpenAI config file support", () => {
               "HTTP-Referer": "https://example.test/cycle",
               "X-Title": "Cycle Sample"
             },
+            httpDebugLogging: {
+              enabled: true,
+              includeHeaders: true
+            },
             defaultModel: "openai/gpt-5.2-mini"
           }
         },
@@ -115,6 +119,10 @@ describe("OpenAI config file support", () => {
     expect(options.defaultHeaders).toEqual({
       "HTTP-Referer": "https://example.test/cycle",
       "X-Title": "Cycle Sample"
+    });
+    expect(options.httpDebugLogging).toEqual({
+      enabled: true,
+      includeHeaders: true
     });
     expect(options.defaultModel).toBe("openai/gpt-5.2-mini");
   });

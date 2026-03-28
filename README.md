@@ -122,6 +122,7 @@ const cycle = createCycle({
     defaultHeaders: {
       "HTTP-Referer": "https://example.test/cycle"
     },
+    httpDebugLogging: true,
     timeoutMs: 20_000,
     maxRetries: 2
   })

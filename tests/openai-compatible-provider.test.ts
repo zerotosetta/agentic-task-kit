@@ -1,4 +1,5 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import { PassThrough } from "node:stream";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -279,5 +280,45 @@ describe("OpenAI-compatible provider", () => {
     expect(mock.requests).toHaveLength(1);
     expect(mock.requests[0]?.body?.stream).toBe(true);
     expect(mock.requests[0]?.headers["x-stream-request"]).toBe("yes");
+  });
+
+  it("prints redacted HTTP debug logs when enabled", async () => {
+    const mock = await createMockServer();
+    servers.push(mock.server);
+
+    const debugStream = new PassThrough();
+    let output = "";
+    debugStream.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+
+    const provider = createOpenAICompatibleChatProvider({
+      providerName: "mock-compatible-debug",
+      apiKey: "test-key",
+      baseURL: mock.baseURL,
+      defaultModel: "debug-model",
+      httpDebugLogging: {
+        stream: debugStream as unknown as NodeJS.WriteStream,
+        includeHeaders: true,
+        includeResponseHeaders: true,
+        includeRequestBody: true
+      }
+    });
+
+    await provider.chat({
+      messages: [
+        {
+          role: "user",
+          content: "Debug this request."
+        }
+      ]
+    });
+
+    expect(output).toContain('"phase":"request"');
+    expect(output).toContain('"phase":"response"');
+    expect(output).toContain('"provider":"mock-compatible-debug"');
+    expect(output).toContain('"authorization":"[REDACTED]"');
+    expect(output).toContain('"status":200');
+    expect(output).toContain('"model":"debug-model"');
   });
 });

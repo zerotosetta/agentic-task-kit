@@ -58,6 +58,10 @@ OPENAI_API_KEY=your_key_here \
 CYCLE_REQUEST_HEADERS_JSON='{"X-Request-ID":"local-example"}' \
 npm run example:openai
 ```
+- HTTP debug logging:
+```bash
+OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 npm run example:openai
+```
 
 ## Sample project
 repo root example app:
