@@ -348,3 +348,15 @@ export type OpenAIChatProviderOptions = {
   defaultMaxCompletionTokens?: number;
   defaultReasoningEffort?: AIReasoningEffort;
 };
+
+export type OpenAIChatProviderFileConfig = OpenAIChatProviderOptions & {
+  apiKeyEnv?: string;
+  baseURLEnv?: string;
+  organizationEnv?: string;
+  projectEnv?: string;
+};
+
+export type OpenAIChatProviderConfigFileOptions = {
+  configPath?: string;
+  overrides?: OpenAIChatProviderOptions;
+};

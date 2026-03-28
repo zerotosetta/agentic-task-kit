@@ -48,3 +48,18 @@ export OPENAI_MODEL=gpt-5.2
 export OPENAI_TIMEOUT_MS=20000
 export OPENAI_MAX_RETRIES=2
 ```
+
+## Sample project
+repo root example app:
+```bash
+cd sample-project
+npm install
+npm run typecheck
+OPENAI_API_KEY=your_key_here npm run start
+```
+
+config file path override:
+```bash
+cd sample-project
+OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm run start
+```

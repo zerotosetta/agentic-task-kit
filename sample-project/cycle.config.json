@@ -1,0 +1,8 @@
+{
+  "openai": {
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "defaultModel": "gpt-5.2",
+    "timeoutMs": 20000,
+    "maxRetries": 2
+  }
+}

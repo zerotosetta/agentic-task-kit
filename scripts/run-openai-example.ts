@@ -1,8 +1,11 @@
 import {
   createCLIRenderer,
   createCycle,
+  createOpenAIChatProviderFromConfigFile,
   createOpenAIChatProvider,
+  loadOpenAIChatProviderOptionsFromConfigFile,
   OpenAISummaryWorkflow,
+  resolveOpenAIChatConfigPath,
   type CLIRendererOptions
 } from "../src/index.js";
 
@@ -22,20 +25,42 @@ function resolveRendererOptions(): CLIRendererOptions {
 }
 
 const renderer = createCLIRenderer(resolveRendererOptions());
-const providerOptions = {
-  defaultModel: process.env.OPENAI_MODEL ?? "gpt-5.2",
-  ...(process.env.OPENAI_TIMEOUT_MS
-    ? {
-        timeoutMs: Number.parseInt(process.env.OPENAI_TIMEOUT_MS, 10)
+const configPath = resolveOpenAIChatConfigPath();
+const providerOptions = configPath
+  ? loadOpenAIChatProviderOptionsFromConfigFile({
+      configPath,
+      overrides: {
+        defaultModel: process.env.OPENAI_MODEL ?? "gpt-5.2"
       }
-    : {}),
-  ...(process.env.OPENAI_MAX_RETRIES
-    ? {
-        maxRetries: Number.parseInt(process.env.OPENAI_MAX_RETRIES, 10)
+    })
+  : {
+      defaultModel: process.env.OPENAI_MODEL ?? "gpt-5.2",
+      ...(process.env.OPENAI_TIMEOUT_MS
+        ? {
+            timeoutMs: Number.parseInt(process.env.OPENAI_TIMEOUT_MS, 10)
+          }
+        : {}),
+      ...(process.env.OPENAI_MAX_RETRIES
+        ? {
+            maxRetries: Number.parseInt(process.env.OPENAI_MAX_RETRIES, 10)
+          }
+        : {})
+    };
+if (!providerOptions.apiKey) {
+  process.stdout.write(
+    `OpenAI API key is not configured. Set OPENAI_API_KEY or point CYCLE_OPENAI_CONFIG_PATH to a config file.\n`
+  );
+  process.exit(0);
+}
+
+const aiProvider = configPath
+  ? createOpenAIChatProviderFromConfigFile({
+      configPath,
+      overrides: {
+        defaultModel: process.env.OPENAI_MODEL ?? "gpt-5.2"
       }
-    : {})
-};
-const aiProvider = createOpenAIChatProvider(providerOptions);
+    })
+  : createOpenAIChatProvider(providerOptions);
 
 const cycle = createCycle({
   aiProvider,

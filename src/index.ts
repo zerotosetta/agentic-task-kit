@@ -4,6 +4,11 @@ export { ExecutionBroadcaster } from "./events.js";
 export { createTaskLogger } from "./logging.js";
 export { InMemoryMemoryStore, createObservedMemoryStore } from "./memory.js";
 export { InMemoryArtifactStore, createObservedArtifactStore } from "./artifacts.js";
+export {
+  createOpenAIChatProviderFromConfigFile,
+  loadOpenAIChatProviderOptionsFromConfigFile,
+  resolveOpenAIChatConfigPath
+} from "./openai-config.js";
 export { createOpenAIChatProvider } from "./openai-provider.js";
 export { Task } from "./task.js";
 export { createCLIRenderer } from "./renderer.js";
@@ -36,6 +41,8 @@ export type {
   MemoryScope,
   MemoryStore,
   OpenAIChatProviderOptions,
+  OpenAIChatProviderFileConfig,
+  OpenAIChatProviderConfigFileOptions,
   ParallelTransition,
   RunOptions,
   TaskLike,

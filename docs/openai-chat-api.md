@@ -1,6 +1,7 @@
 # OpenAI Chat API
 
 `Cycle` 는 `createOpenAIChatProvider()` 로 OpenAI Chat Completions 기반 AI 호출을 연결할 수 있다.
+설정은 별도 JSON 파일 경로로도 읽을 수 있다.
 
 ## 기본 사용
 ```ts
@@ -11,6 +12,21 @@ const cycle = createCycle({
     defaultModel: "gpt-5.2",
     timeoutMs: 20_000,
     maxRetries: 2
+  })
+});
+```
+
+설정 파일 사용:
+
+```ts
+import {
+  createCycle,
+  createOpenAIChatProviderFromConfigFile
+} from "agentic-task-kit";
+
+const cycle = createCycle({
+  aiProvider: createOpenAIChatProviderFromConfigFile({
+    configPath: "./cycle.config.json"
   })
 });
 ```
@@ -54,8 +70,38 @@ const completion = await ctx.ai.chat({
 - `OPENAI_MAX_RETRIES`
 - `OPENAI_MAX_COMPLETION_TOKENS`
 - `OPENAI_REASONING_EFFORT`
+- `CYCLE_OPENAI_CONFIG_PATH`
+- `OPENAI_CONFIG_PATH`
 
 명시적 옵션이 환경 변수보다 우선한다.
+
+## 설정 파일 형식
+```json
+{
+  "openai": {
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "defaultModel": "gpt-5.2",
+    "timeoutMs": 20000,
+    "maxRetries": 2
+  }
+}
+```
+
+지원 필드:
+- `apiKey`
+- `apiKeyEnv`
+- `baseURL`
+- `baseURLEnv`
+- `organization`
+- `organizationEnv`
+- `project`
+- `projectEnv`
+- `defaultModel`
+- `timeoutMs`
+- `maxRetries`
+- `defaultTemperature`
+- `defaultMaxCompletionTokens`
+- `defaultReasoningEffort`
 
 ## 예제 실행
 ```bash
@@ -65,6 +111,11 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 line mode 로 확인하려면:
 ```bash
 OPENAI_API_KEY=your_key_here CYCLE_LIVE=0 npm run example:openai
+```
+
+설정 파일 경로 지정:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm run example:openai
 ```
 
 ## 참고

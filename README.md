@@ -11,6 +11,7 @@ Cycle foundation MVP 를 구현하는 저장소입니다.
 - `TaskLogger` / `ctx.log`
 - `ctx.ai.chat()` provider interface
 - OpenAI Chat Completions adapter
+- separate OpenAI config file loading
 - compact CLI renderer
 - live rendering off line mode
 - sample `ReportWorkflow`
@@ -83,6 +84,24 @@ CYCLE_LIVE=0 npm run example:consumer
 OPENAI_API_KEY=your_key_here npm run example:openai
 ```
 
+## Config file
+OpenAI 설정은 코드나 env 뿐 아니라 별도 JSON 파일로도 읽을 수 있습니다.
+
+```ts
+import {
+  createCycle,
+  createOpenAIChatProviderFromConfigFile
+} from "agentic-task-kit";
+
+const cycle = createCycle({
+  aiProvider: createOpenAIChatProviderFromConfigFile({
+    configPath: "./cycle.config.json"
+  })
+});
+```
+
+`CYCLE_OPENAI_CONFIG_PATH` 또는 `OPENAI_CONFIG_PATH` 로도 경로를 지정할 수 있습니다.
+
 ## OpenAI provider quick usage
 ```ts
 import { createCycle, createOpenAIChatProvider } from "agentic-task-kit";
@@ -101,3 +120,4 @@ const cycle = createCycle({
 - [runtime overview](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/runtime-overview.md)
 - [consumer example](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/consumer-example.md)
 - [OpenAI Chat API](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/openai-chat-api.md)
+- [sample project](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/sample-project/README.md)
