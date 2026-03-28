@@ -91,11 +91,11 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 ```bash
 OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
 ```
-- workspace root standalone example project:
+- workspace root Java modernization pipeline example:
 ```bash
 cd /Users/fortrit/workspace/agentic-task-kit/example-project
 npm install
-OPENAI_API_KEY=your_key_here npm run start
+npm run start
 ```
 
 ## Config file

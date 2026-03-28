@@ -85,10 +85,10 @@ OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run start
 ```
 
 ## Workspace root example project
-workspace root 에서 구현 저장소를 외부 dependency 로 소비하는 독립 예제:
+workspace root 에서 구현 저장소를 외부 dependency 로 소비하는 Java 현대화 파이프라인 예제:
 ```bash
 cd /Users/fortrit/workspace/agentic-task-kit/example-project
 npm install
 npm run typecheck
-OPENAI_API_KEY=your_key_here npm run start
+npm run start
 ```
