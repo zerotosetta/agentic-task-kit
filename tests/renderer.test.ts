@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createCLIRenderer } from "../src/index.js";
+import { InkCLIRenderer } from "../src/ink-renderer.js";
 import type { ExecutionEvent, TaskLogEvent } from "../src/index.js";
 
 describe("CLI renderer", () => {
@@ -151,5 +152,59 @@ describe("CLI renderer", () => {
     compactRenderer.stop("fail");
 
     expect(output).toContain("Failure: Request timed out.");
+  });
+
+  it("falls back to jsonl when ink mode is requested without an interactive tty", () => {
+    const renderer = createCLIRenderer({
+      enabled: true,
+      mode: "ink",
+      stream: stream as unknown as NodeJS.WriteStream
+    });
+
+    renderer.start();
+    renderer.onEvent({
+      type: "workflow.started",
+      timestamp: 10,
+      workflowId: "report",
+      runId: "run_jsonl",
+      summary: "report start=analyze"
+    });
+    renderer.stop("success");
+
+    expect(output).toContain(`"kind":"event"`);
+    expect(output).toContain(`"type":"workflow.started"`);
+  });
+
+  it("selects the Ink renderer when interactive tty streams are available", () => {
+    const ttyLike = stream as unknown as NodeJS.WriteStream & {
+      isTTY?: boolean;
+      columns?: number;
+      rows?: number;
+    };
+    ttyLike.isTTY = true;
+    ttyLike.columns = 100;
+    ttyLike.rows = 30;
+
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: true
+    });
+
+    try {
+      const renderer = createCLIRenderer({
+        enabled: true,
+        mode: "ink",
+        stream: ttyLike
+      });
+
+      expect(renderer).toBeInstanceOf(InkCLIRenderer);
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(process.stdin, "isTTY", descriptor);
+      } else {
+        Reflect.deleteProperty(process.stdin, "isTTY");
+      }
+    }
   });
 });

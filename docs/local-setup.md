@@ -24,6 +24,10 @@ npm run example:openai
 ```bash
 npm run example
 ```
+- Ink TUI mode:
+```bash
+CYCLE_RENDER_MODE=ink npm run example
+```
 - line mode:
 ```bash
 CYCLE_RENDER_MODE=line npm run example
@@ -32,6 +36,19 @@ CYCLE_RENDER_MODE=line npm run example
 ```bash
 CYCLE_LIVE=0 npm run example
 ```
+
+Ink mode 에서는 좌측에 workflow/task history, 우측에 task log + provider debug log 가 2컬럼으로 출력된다.
+`Tab`, `↑↓`, `j k`, `PageUp/PageDown`, `Home/End`, `g/G` 를 지원한다.
+TTY 가 아니면 `jsonl` 로 fallback 된다.
+
+## Bundle build
+```bash
+npm run clean
+npm run build
+node -e \"import('./dist/index.js')\"
+```
+
+`npm run build` 는 `dist/index.js` 단일 ESM 번들과 `dist/index.d.ts` 타입 선언을 생성한다.
 
 ## OpenAI Chat API example
 - required env:
@@ -61,6 +78,10 @@ npm run example:openai
 - HTTP debug logging:
 ```bash
 OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 npm run example:openai
+```
+- Ink mode with HTTP debug logging:
+```bash
+OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_RENDER_MODE=ink npm run example:openai
 ```
 
 ## Sample project

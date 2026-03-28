@@ -15,11 +15,16 @@
 - separate config file loader for OpenAI-compatible provider
 - in-memory memory and artifact stores
 - CLI renderer with:
+  - `ink` full-screen 2-column TUI
   - `compact`
   - `line`
   - `jsonl`
   - `plain`
   - `enabled=false` fallback to line output
+  - provider HTTP debug log stream wired into the right-hand timeline panel in Ink mode
+- package build pipeline:
+  - `esbuild` single-file ESM bundle at `dist/index.js`
+  - `tsc --emitDeclarationOnly` declaration output at `dist/index.d.ts`
 
 ## Current limitation
 - parallel transition is typed but not implemented in the Foundation MVP

@@ -214,6 +214,15 @@ HTTP debug 로그 활성화:
 OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 npm run example:openai
 ```
 
+Ink TUI 에서 provider debug 로그까지 같이 보려면:
+```bash
+OPENAI_API_KEY=your_key_here \
+OPENAI_HTTP_DEBUG=1 \
+CYCLE_LOG_LEVEL=debug \
+CYCLE_RENDER_MODE=ink \
+npm run example:openai
+```
+
 ## 참고
 - 이 adapter 는 현재 OpenAI Chat Completions API 기준이다.
 - `createOpenAIChatProvider()` / `createOpenAIChatProviderFromConfigFile()` 는 하위 호환 alias 로 유지된다.

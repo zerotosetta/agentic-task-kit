@@ -4,19 +4,29 @@ const requestedMode = process.env.CYCLE_RENDER_MODE as
   | "off"
   | "line"
   | "compact"
+  | "ink"
   | "dashboard"
   | "jsonl"
   | "plain"
+  | undefined;
+const requestedLogLevel = process.env.CYCLE_LOG_LEVEL as
+  | "debug"
+  | "info"
+  | "warn"
+  | "error"
+  | "success"
   | undefined;
 
 const renderer = createCLIRenderer(
   requestedMode
     ? {
         enabled: process.env.CYCLE_LIVE !== "0",
-        mode: requestedMode
+        mode: requestedMode,
+        ...(requestedLogLevel ? { logLevel: requestedLogLevel } : {})
       }
     : {
-        enabled: process.env.CYCLE_LIVE !== "0"
+        enabled: process.env.CYCLE_LIVE !== "0",
+        ...(requestedLogLevel ? { logLevel: requestedLogLevel } : {})
       }
 );
 

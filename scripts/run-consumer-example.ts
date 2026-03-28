@@ -20,16 +20,19 @@ type BriefingInput = {
 
 function resolveRendererOptions(): CLIRendererOptions {
   const requestedMode = process.env.CYCLE_RENDER_MODE as CLIRendererOptions["mode"];
+  const requestedLogLevel = process.env.CYCLE_LOG_LEVEL as CLIRendererOptions["logLevel"];
 
   if (requestedMode) {
     return {
       enabled: process.env.CYCLE_LIVE !== "0",
-      mode: requestedMode
+      mode: requestedMode,
+      ...(requestedLogLevel ? { logLevel: requestedLogLevel } : {})
     };
   }
 
   return {
-    enabled: process.env.CYCLE_LIVE !== "0"
+    enabled: process.env.CYCLE_LIVE !== "0",
+    ...(requestedLogLevel ? { logLevel: requestedLogLevel } : {})
   };
 }
 

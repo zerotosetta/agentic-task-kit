@@ -32,7 +32,7 @@ type ResolvedOpenAICompatibleChatProviderOptions = {
 };
 
 type ResolvedAIHTTPDebugLoggingOptions = {
-  stream: NodeJS.WriteStream;
+  stream: NodeJS.WritableStream;
   includeHeaders: boolean;
   includeResponseHeaders: boolean;
   includeRequestBody: boolean;

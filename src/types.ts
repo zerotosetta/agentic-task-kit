@@ -119,7 +119,7 @@ export type AIHTTPRequestOptions = {
 
 export type AIHTTPDebugLoggingOptions = {
   enabled?: boolean;
-  stream?: NodeJS.WriteStream;
+  stream?: NodeJS.WritableStream;
   includeHeaders?: boolean;
   includeResponseHeaders?: boolean;
   includeRequestBody?: boolean;
@@ -264,9 +264,10 @@ export interface TaskLogger {
 
 export type CLIRendererOptions = {
   enabled?: boolean;
-  mode?: "off" | "line" | "compact" | "dashboard" | "jsonl" | "plain";
+  mode?: "off" | "line" | "compact" | "ink" | "dashboard" | "jsonl" | "plain";
   stream?: NodeJS.WriteStream;
   errorStream?: NodeJS.WriteStream;
+  debugLogStream?: NodeJS.ReadableStream;
   useColor?: boolean;
   useUnicode?: boolean;
   refreshMs?: number;

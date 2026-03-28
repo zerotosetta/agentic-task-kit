@@ -13,6 +13,7 @@ Cycle foundation MVP 를 구현하는 저장소입니다.
 - OpenAI-compatible Chat Completions adapter
 - separate OpenAI-compatible config file loading
 - compact CLI renderer
+- Ink 2-column TUI renderer
 - live rendering off line mode
 - sample `ReportWorkflow`
 
@@ -35,19 +36,23 @@ npm run typecheck
 ```bash
 npm test
 ```
-4. example workflow 실행:
+4. 단일 번들 생성:
+```bash
+npm run build
+```
+5. example workflow 실행:
 ```bash
 npm run example
 ```
-5. consumer example 실행:
+6. consumer example 실행:
 ```bash
 npm run example:consumer
 ```
-6. OpenAI Chat example 실행:
+7. OpenAI Chat example 실행:
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai
 ```
-7. OpenAI-compatible streaming example 실행:
+8. OpenAI-compatible streaming example 실행:
 ```bash
 OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
 ```
@@ -65,9 +70,40 @@ CYCLE_LIVE=0 npm run example
 ```bash
 CYCLE_RENDER_MODE=line npm run example
 ```
+- Ink TUI mode:
+```bash
+CYCLE_RENDER_MODE=ink npm run example
+```
 - OpenAI example line mode:
 ```bash
 OPENAI_API_KEY=your_key_here CYCLE_LIVE=0 npm run example:openai
+```
+- OpenAI example Ink mode + HTTP debug log:
+```bash
+OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_RENDER_MODE=ink npm run example:openai
+```
+
+## Ink TUI
+`CYCLE_RENDER_MODE=ink` 이면 interactive TTY 에서 Ink 전체화면 TUI 를 사용한다.
+
+- 좌측 40%: workflow 상태, 현재 task, task 실행 이력
+- 우측 60%: task 로그와 provider HTTP debug 로그 타임라인
+- `Tab`: 패널 전환
+- `↑↓` / `j k`: 현재 패널 스크롤
+- `PageUp/PageDown`: 페이지 단위 스크롤
+- `Home/End`, `g/G`: 처음/끝 이동
+- `CYCLE_LOG_LEVEL=debug`: task debug log 와 provider HTTP debug log 노출
+
+interactive TTY 가 아니면 `ink` 모드는 `jsonl` 로 자동 fallback 된다.
+
+## Build
+배포 산출물은 `esbuild` 로 만든 단일 ESM 번들 `dist/index.js` 와 타입 선언 `dist/index.d.ts` 다. npm 런타임 의존성은 번들에 포함되고 Node.js built-in module 만 external 로 남는다.
+
+```bash
+npm run clean
+npm run build:types
+npm run build:bundle
+npm run build
 ```
 
 ## Examples
@@ -82,6 +118,10 @@ npm run example:consumer
 - consumer-defined workflow with line mode:
 ```bash
 CYCLE_LIVE=0 npm run example:consumer
+```
+- consumer-defined workflow with Ink TUI:
+```bash
+CYCLE_RENDER_MODE=ink npm run example:consumer
 ```
 - OpenAI Chat workflow:
 ```bash

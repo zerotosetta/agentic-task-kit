@@ -136,6 +136,19 @@ export function loadOpenAICompatibleChatProviderOptionsFromConfigFile(
   return {
     ...fileOptions,
     ...options.overrides,
+    ...(options.overrides?.httpDebugLogging &&
+    typeof options.overrides.httpDebugLogging === "object" &&
+    !Array.isArray(options.overrides.httpDebugLogging) &&
+    fileOptions.httpDebugLogging &&
+    typeof fileOptions.httpDebugLogging === "object" &&
+    !Array.isArray(fileOptions.httpDebugLogging)
+      ? {
+          httpDebugLogging: {
+            ...fileOptions.httpDebugLogging,
+            ...options.overrides.httpDebugLogging
+          }
+        }
+      : {}),
     ...(options.overrides?.defaultHeaders
       ? {
           defaultHeaders: {

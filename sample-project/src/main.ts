@@ -1,10 +1,11 @@
+import { PassThrough } from "node:stream";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   createCLIRenderer,
   createCycle,
-  createOpenAICompatibleChatProviderFromConfigFile,
+  createOpenAICompatibleChatProvider,
   loadOpenAICompatibleChatProviderOptionsFromConfigFile,
   OpenAISummaryWorkflow,
   OpenAIStreamingSummaryWorkflow,
@@ -47,6 +48,45 @@ function resolveRequestHeaders(): Record<string, string> | undefined {
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
+function resolveHTTPDebugEnabled(
+  value: boolean | Record<string, unknown> | undefined
+): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const enabled = value["enabled"];
+    return typeof enabled === "boolean" ? enabled : true;
+  }
+
+  return ["1", "true", "yes", "on"].includes((process.env.OPENAI_HTTP_DEBUG ?? "").toLowerCase());
+}
+
+function withDebugStream<T extends { httpDebugLogging?: boolean | Record<string, unknown> }>(
+  options: T,
+  debugLogStream: PassThrough | undefined
+): T {
+  if (!debugLogStream || !resolveHTTPDebugEnabled(options.httpDebugLogging)) {
+    return options;
+  }
+
+  const current = options.httpDebugLogging;
+  return {
+    ...options,
+    httpDebugLogging:
+      current && typeof current === "object" && !Array.isArray(current)
+        ? {
+            ...current,
+            stream: debugLogStream
+          }
+        : {
+            enabled: true,
+            stream: debugLogStream
+          }
+  };
+}
+
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = dirname(currentFile);
 const defaultConfigPath = resolve(currentDir, "..", "cycle.config.json");
@@ -63,13 +103,16 @@ if (!providerOptions.apiKey) {
   process.exit(0);
 }
 
-const renderer = createCLIRenderer(resolveRendererOptions());
+const rendererOptions = resolveRendererOptions();
+const debugLogStream = rendererOptions.mode === "ink" ? new PassThrough() : undefined;
+const renderer = createCLIRenderer({
+  ...rendererOptions,
+  ...(debugLogStream ? { debugLogStream } : {})
+});
 const useStreaming = process.env.CYCLE_STREAM === "1";
 const requestHeaders = resolveRequestHeaders();
 const cycle = createCycle({
-  aiProvider: createOpenAICompatibleChatProviderFromConfigFile({
-    configPath
-  }),
+  aiProvider: createOpenAICompatibleChatProvider(withDebugStream(providerOptions, debugLogStream)),
   observers: [renderer]
 });
 

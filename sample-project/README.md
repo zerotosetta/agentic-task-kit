@@ -29,6 +29,11 @@ line mode:
 OPENAI_API_KEY=your_key_here npm run start:line
 ```
 
+Ink TUI mode:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_RENDER_MODE=ink npm run start
+```
+
 다른 설정 파일 지정:
 ```bash
 OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm run start
@@ -44,4 +49,9 @@ npm run start
 HTTP debug 로그 활성화:
 ```bash
 OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 npm run start
+```
+
+Ink TUI 에서 provider debug 로그까지 우측 패널에 함께 보려면:
+```bash
+OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_RENDER_MODE=ink npm run start
 ```

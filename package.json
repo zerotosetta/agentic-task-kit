@@ -15,7 +15,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "build:bundle": "node ./scripts/build-package.mjs",
+    "build": "npm run clean && npm run build:types && npm run build:bundle",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -30,14 +33,23 @@
     "typescript",
     "memory"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "esbuild": "^0.25.9",
+    "ink-testing-library": "^4.0.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   },
   "dependencies": {
-    "openai": "^6.33.0"
+    "ink": "^6.8.0",
+    "openai": "^6.33.0",
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1"
   }
 }

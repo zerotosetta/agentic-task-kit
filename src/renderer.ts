@@ -1,135 +1,23 @@
+import { InkCLIRenderer } from "./ink-renderer.js";
+import {
+  createInitialRendererState,
+  jsonForEvent,
+  jsonForTaskLog,
+  levelWeight,
+  lineForEvent,
+  lineForTaskLog,
+  reduceExecutionEvent,
+  type RendererResolvedMode
+} from "./renderer-model.js";
 import type {
   CLIRenderer,
   CLIRendererOptions,
   ExecutionEvent,
-  TaskLogEvent,
-  TaskLogLevel
+  TaskLogEvent
 } from "./types.js";
 
-type ResolvedMode = "line" | "compact" | "jsonl" | "plain";
+type ResolvedMode = Exclude<RendererResolvedMode, "ink">;
 type RequestedMode = NonNullable<CLIRendererOptions["mode"]>;
-
-type RendererState = {
-  workflowId: string | undefined;
-  runId: string | undefined;
-  status: string | undefined;
-  currentTask: string | undefined;
-  lastFailure: string | undefined;
-  activeTasks: Set<string>;
-  completedTasks: string[];
-  recentEvents: string[];
-  recentLogs: TaskLogEvent[];
-  artifactCount: number;
-  memoryWrites: number;
-  retryCount: number;
-  errorCount: number;
-};
-
-function levelWeight(level: TaskLogLevel): number {
-  switch (level) {
-    case "debug":
-      return 10;
-    case "info":
-      return 20;
-    case "success":
-      return 25;
-    case "warn":
-      return 30;
-    case "error":
-      return 40;
-  }
-}
-
-function formatClock(timestamp: number): string {
-  const date = new Date(timestamp);
-  return date.toISOString().slice(11, 19);
-}
-
-function firstErrorFromMeta(meta: Record<string, unknown> | undefined): string | undefined {
-  const errors = meta?.errors;
-  if (!Array.isArray(errors)) {
-    return undefined;
-  }
-
-  const first = errors.find((error) => typeof error === "string");
-  return typeof first === "string" ? first : undefined;
-}
-
-function failureReasonForEvent(event: ExecutionEvent): string | undefined {
-  if (event.type === "task.failed") {
-    if (typeof event.meta?.errorMessage === "string") {
-      return event.meta.errorMessage;
-    }
-
-    return event.summary.startsWith("failed ") ? undefined : event.summary;
-  }
-
-  if (event.type === "workflow.failed") {
-    if (typeof event.meta?.errorMessage === "string") {
-      return event.meta.errorMessage;
-    }
-
-    return firstErrorFromMeta(event.meta) ?? (event.summary.endsWith(" failed") ? undefined : event.summary);
-  }
-
-  return undefined;
-}
-
-function failureSuffix(summary: string, reason: string | undefined): string {
-  if (!reason || reason === summary) {
-    return "";
-  }
-
-  return ` reason=${reason}`;
-}
-
-function lineForEvent(event: ExecutionEvent): string {
-  const prefix = `[${formatClock(event.timestamp)}]`;
-  const failureReason = failureReasonForEvent(event);
-
-  switch (event.type) {
-    case "workflow.started":
-      return `${prefix} workflow started ${event.summary}`;
-    case "workflow.completed":
-      return `${prefix} workflow completed ${event.summary}`;
-    case "workflow.failed":
-      return `${prefix} workflow failed ${event.summary}${failureSuffix(event.summary, failureReason)}`;
-    case "task.queued":
-    case "task.started":
-    case "task.completed":
-    case "task.retry_scheduled":
-      return `${prefix} ${event.type} ${event.taskName} ${event.summary}`.trim();
-    case "task.failed":
-      return `${prefix} task.failed ${event.taskName} ${event.summary}${failureSuffix(event.summary, failureReason)}`.trim();
-    case "branch.started":
-    case "branch.completed":
-    case "join.waiting":
-    case "join.completed":
-      return `${prefix} ${event.type} ${event.branchId} ${event.summary}`.trim();
-    default:
-      return `${prefix} ${event.type} ${event.summary}`.trim();
-  }
-}
-
-function lineForTaskLog(event: TaskLogEvent): string {
-  const prefix = `[${formatClock(event.timestamp)}]`;
-  const taskName = event.taskName ? ` ${event.taskName}` : "";
-  return `${prefix} task ${event.level}${taskName} ${event.message}`;
-}
-
-function jsonForTaskLog(event: TaskLogEvent): string {
-  return JSON.stringify({
-    kind: "taskLog",
-    ...event
-  });
-}
-
-function jsonForEvent(event: ExecutionEvent): string {
-  return JSON.stringify({
-    kind: "event",
-    ...event
-  });
-}
 
 function sanitizeMode(mode?: RequestedMode): RequestedMode {
   return mode ?? "compact";
@@ -141,21 +29,7 @@ class DefaultCLIRenderer implements CLIRenderer {
     Pick<CLIRendererOptions, "enabled" | "refreshMs" | "maxRecentEvents" | "maxRecentLogs"> &
       Pick<CLIRendererOptions, "mode" | "logLevel">
   >;
-  private readonly state: RendererState = {
-    workflowId: undefined,
-    runId: undefined,
-    status: undefined,
-    currentTask: undefined,
-    lastFailure: undefined,
-    activeTasks: new Set(),
-    completedTasks: [],
-    recentEvents: [],
-    recentLogs: [],
-    artifactCount: 0,
-    memoryWrites: 0,
-    retryCount: 0,
-    errorCount: 0
-  };
+  private readonly state = createInitialRendererState();
 
   private started = false;
   private lastRenderLineCount = 0;
@@ -209,7 +83,7 @@ class DefaultCLIRenderer implements CLIRenderer {
 
   onEvent(event: ExecutionEvent): void {
     this.start();
-    this.reduceEvent(event);
+    reduceExecutionEvent(this.state, event, this.options.maxRecentEvents, 80);
 
     if (event.type === "task.log") {
       return;
@@ -236,7 +110,18 @@ class DefaultCLIRenderer implements CLIRenderer {
       return;
     }
 
-    this.pushRecentLog(event);
+    const previous = this.state.recentLogs[this.state.recentLogs.length - 1];
+    if (
+      previous &&
+      previous.taskName === event.taskName &&
+      previous.level === event.level &&
+      previous.message === event.message
+    ) {
+      this.state.recentLogs[this.state.recentLogs.length - 1] = event;
+    } else {
+      this.state.recentLogs.push(event);
+      this.state.recentLogs = this.state.recentLogs.slice(-this.options.maxRecentLogs);
+    }
 
     switch (this.resolvedMode) {
       case "compact":
@@ -282,80 +167,15 @@ class DefaultCLIRenderer implements CLIRenderer {
       return "compact";
     }
 
-    if ((this.stream as { isTTY?: boolean }).isTTY === false) {
+    if (requestedMode === "ink" && (this.stream as { isTTY?: boolean }).isTTY !== true) {
+      return "jsonl";
+    }
+
+    if ((this.stream as { isTTY?: boolean }).isTTY !== true) {
       return "jsonl";
     }
 
     return "compact";
-  }
-
-  private reduceEvent(event: ExecutionEvent): void {
-    this.state.workflowId = event.workflowId;
-    this.state.runId = event.runId;
-    this.state.recentEvents.push(lineForEvent(event));
-    this.state.recentEvents = this.state.recentEvents.slice(-this.options.maxRecentEvents);
-
-    switch (event.type) {
-      case "workflow.started":
-        this.state.status = "running";
-        this.state.lastFailure = undefined;
-        break;
-      case "workflow.completed":
-        this.state.status = event.status;
-        this.state.lastFailure = undefined;
-        this.state.activeTasks.clear();
-        break;
-      case "workflow.failed":
-        this.state.status = event.status;
-        this.state.lastFailure = failureReasonForEvent(event) ?? this.state.lastFailure;
-        this.state.errorCount += 1;
-        this.state.activeTasks.clear();
-        break;
-      case "task.started":
-        this.state.currentTask = event.taskName;
-        this.state.activeTasks.add(event.taskName);
-        break;
-      case "task.completed":
-        this.state.activeTasks.delete(event.taskName);
-        this.state.completedTasks.push(event.taskName);
-        this.state.completedTasks = this.state.completedTasks.slice(-5);
-        break;
-      case "task.failed":
-        this.state.activeTasks.delete(event.taskName);
-        this.state.lastFailure =
-          failureReasonForEvent(event) !== undefined
-            ? `${event.taskName}: ${failureReasonForEvent(event)}`
-            : `${event.taskName} failed`;
-        this.state.errorCount += 1;
-        break;
-      case "task.retry_scheduled":
-        this.state.retryCount += 1;
-        break;
-      case "memory.put":
-        this.state.memoryWrites += 1;
-        break;
-      case "artifact.created":
-        this.state.artifactCount += 1;
-        break;
-      default:
-        break;
-    }
-  }
-
-  private pushRecentLog(event: TaskLogEvent): void {
-    const previous = this.state.recentLogs[this.state.recentLogs.length - 1];
-    if (
-      previous &&
-      previous.taskName === event.taskName &&
-      previous.level === event.level &&
-      previous.message === event.message
-    ) {
-      this.state.recentLogs[this.state.recentLogs.length - 1] = event;
-      return;
-    }
-
-    this.state.recentLogs.push(event);
-    this.state.recentLogs = this.state.recentLogs.slice(-this.options.maxRecentLogs);
   }
 
   private scheduleRender(): void {
@@ -402,6 +222,38 @@ class DefaultCLIRenderer implements CLIRenderer {
   }
 }
 
-export function createCLIRenderer(options?: CLIRendererOptions): CLIRenderer {
-  return new DefaultCLIRenderer(options);
+function shouldUseInk(options: CLIRendererOptions): boolean {
+  const requestedMode = options.mode;
+  const stream = options.stream ?? process.stdout;
+
+  return (
+    options.enabled !== false &&
+    requestedMode === "ink" &&
+    (stream as { isTTY?: boolean }).isTTY === true &&
+    process.stdin.isTTY === true
+  );
+}
+
+function toClassicFallbackOptions(options: CLIRendererOptions): CLIRendererOptions {
+  if (options.mode !== "ink") {
+    return options;
+  }
+
+  return {
+    ...options,
+    mode:
+      options.enabled === false
+        ? "line"
+        : (options.stream ?? process.stdout).isTTY !== true
+          ? "jsonl"
+          : "compact"
+  };
+}
+
+export function createCLIRenderer(options: CLIRendererOptions = {}): CLIRenderer {
+  if (shouldUseInk(options)) {
+    return new InkCLIRenderer(options);
+  }
+
+  return new DefaultCLIRenderer(toClassicFallbackOptions(options));
 }
