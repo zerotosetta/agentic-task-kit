@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 import {
   createCLIRenderer,
   createCycle,
-  createOpenAIChatProviderFromConfigFile,
-  loadOpenAIChatProviderOptionsFromConfigFile,
+  createOpenAICompatibleChatProviderFromConfigFile,
+  loadOpenAICompatibleChatProviderOptionsFromConfigFile,
   OpenAISummaryWorkflow,
-  resolveOpenAIChatConfigPath,
+  OpenAIStreamingSummaryWorkflow,
+  resolveOpenAICompatibleChatConfigPath,
   type CLIRendererOptions
 } from "agentic-task-kit";
 
@@ -26,38 +27,62 @@ function resolveRendererOptions(): CLIRendererOptions {
   };
 }
 
+function resolveRequestHeaders(): Record<string, string> | undefined {
+  if (!process.env.CYCLE_REQUEST_HEADERS_JSON) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(process.env.CYCLE_REQUEST_HEADERS_JSON) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("CYCLE_REQUEST_HEADERS_JSON must be a JSON object.");
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === "string") {
+      headers[key] = value;
+    }
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = dirname(currentFile);
 const defaultConfigPath = resolve(currentDir, "..", "cycle.config.json");
 const configPath =
-  resolveOpenAIChatConfigPath(process.env.CYCLE_OPENAI_CONFIG_PATH) ?? defaultConfigPath;
-const providerOptions = loadOpenAIChatProviderOptionsFromConfigFile({
+  resolveOpenAICompatibleChatConfigPath(process.env.CYCLE_OPENAI_CONFIG_PATH) ?? defaultConfigPath;
+const providerOptions = loadOpenAICompatibleChatProviderOptionsFromConfigFile({
   configPath
 });
 
 if (!providerOptions.apiKey) {
   process.stdout.write(
-    `OpenAI API key is not configured. Set OPENAI_API_KEY or put apiKey in ${configPath}.\n`
+    `OpenAI-compatible API key is not configured. Set OPENAI_API_KEY or put apiKey in ${configPath}.\n`
   );
   process.exit(0);
 }
 
 const renderer = createCLIRenderer(resolveRendererOptions());
+const useStreaming = process.env.CYCLE_STREAM === "1";
+const requestHeaders = resolveRequestHeaders();
 const cycle = createCycle({
-  aiProvider: createOpenAIChatProviderFromConfigFile({
+  aiProvider: createOpenAICompatibleChatProviderFromConfigFile({
     configPath
   }),
   observers: [renderer]
 });
 
 cycle.register("openai-summary", OpenAISummaryWorkflow);
+cycle.register("openai-streaming-summary", OpenAIStreamingSummaryWorkflow);
 
-const { frame } = await cycle.run("openai-summary", {
+const { frame } = await cycle.run(useStreaming ? "openai-streaming-summary" : "openai-summary", {
   product: "Cycle",
-  objective: "Summarize OpenAI configuration file support for a sample host application.",
-  configPath
+  objective: "Summarize OpenAI-compatible configuration support for a sample host application.",
+  configPath,
+  ...(requestHeaders ? { requestHeaders } : {})
 });
 
 process.stdout.write(
-  `Sample project finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")}\n`
+  `Sample project finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")} stream=${useStreaming ? "on" : "off"}\n`
 );

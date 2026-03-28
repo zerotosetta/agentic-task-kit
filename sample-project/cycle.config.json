@@ -1,7 +1,11 @@
 {
-  "openai": {
+  "openaiCompatible": {
+    "providerName": "openai",
     "apiKeyEnv": "OPENAI_API_KEY",
     "defaultModel": "gpt-5.2",
+    "defaultHeaders": {
+      "X-Cycle-Sample": "agentic-task-kit-sample-project"
+    },
     "timeoutMs": 20000,
     "maxRetries": 2
   }

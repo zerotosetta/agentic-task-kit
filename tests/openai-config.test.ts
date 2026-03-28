@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  loadOpenAICompatibleChatProviderOptionsFromConfigFile,
+  resolveOpenAICompatibleChatConfigPath,
   loadOpenAIChatProviderOptionsFromConfigFile,
   resolveOpenAIChatConfigPath
 } from "../src/index.js";
@@ -19,6 +21,7 @@ describe("OpenAI config file support", () => {
     }
 
     delete process.env.CYCLE_OPENAI_CONFIG_PATH;
+    delete process.env.CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH;
     delete process.env.SAMPLE_OPENAI_KEY;
   });
 
@@ -73,5 +76,46 @@ describe("OpenAI config file support", () => {
 
     expect(resolveOpenAIChatConfigPath()).toBe(configPath);
     expect(loadOpenAIChatProviderOptionsFromConfigFile().defaultModel).toBe("gpt-5.2");
+  });
+
+  it("loads OpenAI-compatible config sections and default headers", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "cycle-openai-compatible-config-"));
+    const configPath = join(tempDir, "cycle.compatible.config.json");
+    process.env.SAMPLE_OPENAI_KEY = "test-key-from-env";
+
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          openaiCompatible: {
+            providerName: "openrouter",
+            apiKeyEnv: "SAMPLE_OPENAI_KEY",
+            baseURL: "https://openrouter.ai/api/v1",
+            defaultHeaders: {
+              "HTTP-Referer": "https://example.test/cycle",
+              "X-Title": "Cycle Sample"
+            },
+            defaultModel: "openai/gpt-5.2-mini"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    process.env.CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH = configPath;
+
+    const options = loadOpenAICompatibleChatProviderOptionsFromConfigFile();
+
+    expect(resolveOpenAICompatibleChatConfigPath()).toBe(configPath);
+    expect(options.providerName).toBe("openrouter");
+    expect(options.apiKey).toBe("test-key-from-env");
+    expect(options.baseURL).toBe("https://openrouter.ai/api/v1");
+    expect(options.defaultHeaders).toEqual({
+      "HTTP-Referer": "https://example.test/cycle",
+      "X-Title": "Cycle Sample"
+    });
+    expect(options.defaultModel).toBe("openai/gpt-5.2-mini");
   });
 });

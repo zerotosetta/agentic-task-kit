@@ -9,6 +9,7 @@ import {
   OpenAISummaryWorkflow,
   type AIChatRequest,
   type AIChatResponse,
+  type AIChatStream,
   type AIProvider
 } from "../src/index.js";
 
@@ -29,6 +30,31 @@ describe("AI provider integration", () => {
             content: "Mocked AI summary for the current workflow run."
           },
           finishReason: "stop"
+        };
+      },
+      async chatStream(request): Promise<AIChatStream> {
+        requests.push(request);
+
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              provider: "mock-openai",
+              model: request.model ?? "gpt-test",
+              deltaText: "Mocked AI summary for the current workflow run.",
+              outputText: "Mocked AI summary for the current workflow run.",
+              finishReason: "stop"
+            };
+          },
+          finalResponse: Promise.resolve({
+            provider: "mock-openai",
+            model: request.model ?? "gpt-test",
+            outputText: "Mocked AI summary for the current workflow run.",
+            message: {
+              role: "assistant",
+              content: "Mocked AI summary for the current workflow run."
+            },
+            finishReason: "stop"
+          })
         };
       }
     };

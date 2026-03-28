@@ -108,6 +108,15 @@ export type AISession = {
 
 export type AIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export type AIHTTPHeaders = Record<string, string>;
+
+export type AIHTTPRequestOptions = {
+  baseURL?: string;
+  headers?: AIHTTPHeaders;
+  timeoutMs?: number;
+  maxRetries?: number;
+};
+
 export type AIChatRequest = {
   model?: string;
   messages: AISessionMessage[];
@@ -116,6 +125,7 @@ export type AIChatRequest = {
   reasoningEffort?: AIReasoningEffort;
   metadata?: Record<string, string>;
   promptCacheKey?: string;
+  http?: AIHTTPRequestOptions;
 };
 
 export type AIChatUsage = {
@@ -135,10 +145,25 @@ export type AIChatResponse = {
   raw?: unknown;
 };
 
+export type AIChatStreamChunk = {
+  provider: string;
+  model: string;
+  deltaText: string;
+  outputText: string;
+  finishReason?: string | null;
+  usage?: AIChatUsage;
+  raw?: unknown;
+};
+
+export interface AIChatStream extends AsyncIterable<AIChatStreamChunk> {
+  finalResponse: Promise<AIChatResponse>;
+}
+
 export interface AIProvider {
   provider: string;
   defaultChatModel?: string | undefined;
   chat(request: AIChatRequest): Promise<AIChatResponse>;
+  chatStream(request: AIChatRequest): Promise<AIChatStream>;
 }
 
 export type TaskLogLevel = "debug" | "info" | "warn" | "error" | "success";
@@ -336,11 +361,13 @@ export type CycleOptions = {
   embeddingModelId?: string;
 };
 
-export type OpenAIChatProviderOptions = {
+export type OpenAICompatibleChatProviderOptions = {
+  providerName?: string;
   apiKey?: string;
   baseURL?: string;
   organization?: string;
   project?: string;
+  defaultHeaders?: AIHTTPHeaders;
   defaultModel?: string;
   timeoutMs?: number;
   maxRetries?: number;
@@ -349,14 +376,20 @@ export type OpenAIChatProviderOptions = {
   defaultReasoningEffort?: AIReasoningEffort;
 };
 
-export type OpenAIChatProviderFileConfig = OpenAIChatProviderOptions & {
+export type OpenAICompatibleChatProviderFileConfig = OpenAICompatibleChatProviderOptions & {
   apiKeyEnv?: string;
   baseURLEnv?: string;
   organizationEnv?: string;
   projectEnv?: string;
 };
 
-export type OpenAIChatProviderConfigFileOptions = {
+export type OpenAICompatibleChatProviderConfigFileOptions = {
   configPath?: string;
-  overrides?: OpenAIChatProviderOptions;
+  overrides?: OpenAICompatibleChatProviderOptions;
 };
+
+export type OpenAIChatProviderOptions = OpenAICompatibleChatProviderOptions;
+
+export type OpenAIChatProviderFileConfig = OpenAICompatibleChatProviderFileConfig;
+
+export type OpenAIChatProviderConfigFileOptions = OpenAICompatibleChatProviderConfigFileOptions;

@@ -1,11 +1,12 @@
 import {
   createCLIRenderer,
   createCycle,
-  createOpenAIChatProviderFromConfigFile,
-  createOpenAIChatProvider,
-  loadOpenAIChatProviderOptionsFromConfigFile,
+  createOpenAICompatibleChatProviderFromConfigFile,
+  createOpenAICompatibleChatProvider,
+  loadOpenAICompatibleChatProviderOptionsFromConfigFile,
   OpenAISummaryWorkflow,
-  resolveOpenAIChatConfigPath,
+  OpenAIStreamingSummaryWorkflow,
+  resolveOpenAICompatibleChatConfigPath,
   type CLIRendererOptions
 } from "../src/index.js";
 
@@ -24,10 +25,30 @@ function resolveRendererOptions(): CLIRendererOptions {
   };
 }
 
+function resolveRequestHeaders(): Record<string, string> | undefined {
+  if (!process.env.CYCLE_REQUEST_HEADERS_JSON) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(process.env.CYCLE_REQUEST_HEADERS_JSON) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("CYCLE_REQUEST_HEADERS_JSON must be a JSON object.");
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === "string") {
+      headers[key] = value;
+    }
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
 const renderer = createCLIRenderer(resolveRendererOptions());
-const configPath = resolveOpenAIChatConfigPath();
+const configPath = resolveOpenAICompatibleChatConfigPath();
 const providerOptions = configPath
-  ? loadOpenAIChatProviderOptionsFromConfigFile({
+  ? loadOpenAICompatibleChatProviderOptionsFromConfigFile({
       configPath,
       overrides: {
         defaultModel: process.env.OPENAI_MODEL ?? "gpt-5.2"
@@ -48,19 +69,22 @@ const providerOptions = configPath
     };
 if (!providerOptions.apiKey) {
   process.stdout.write(
-    `OpenAI API key is not configured. Set OPENAI_API_KEY or point CYCLE_OPENAI_CONFIG_PATH to a config file.\n`
+    `OpenAI-compatible API key is not configured. Set OPENAI_API_KEY or point CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH or CYCLE_OPENAI_CONFIG_PATH to a config file.\n`
   );
   process.exit(0);
 }
 
 const aiProvider = configPath
-  ? createOpenAIChatProviderFromConfigFile({
+  ? createOpenAICompatibleChatProviderFromConfigFile({
       configPath,
       overrides: {
         defaultModel: process.env.OPENAI_MODEL ?? "gpt-5.2"
       }
     })
-  : createOpenAIChatProvider(providerOptions);
+  : createOpenAICompatibleChatProvider(providerOptions);
+
+const useStreaming = process.env.CYCLE_STREAM === "1";
+const requestHeaders = resolveRequestHeaders();
 
 const cycle = createCycle({
   aiProvider,
@@ -68,12 +92,18 @@ const cycle = createCycle({
 });
 
 cycle.register("openai-summary", OpenAISummaryWorkflow);
+cycle.register("openai-streaming-summary", OpenAIStreamingSummaryWorkflow);
 
-const { frame } = await cycle.run("openai-summary", {
+const { frame } = await cycle.run(useStreaming ? "openai-streaming-summary" : "openai-summary", {
   objective: "Summarize the current MVP rollout status for the first customer pilot.",
-  constraints: ["Keep the workflow sequential", "Report CLI renderer support", "Mention provider config support"]
+  constraints: [
+    "Keep the workflow sequential",
+    "Report CLI renderer support",
+    "Mention provider config support"
+  ],
+  ...(requestHeaders ? { requestHeaders } : {})
 });
 
 process.stdout.write(
-  `OpenAI example finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")}\n`
+  `OpenAI-compatible example finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")}\n`
 );

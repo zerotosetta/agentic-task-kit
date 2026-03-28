@@ -1,21 +1,26 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
-import { createOpenAIChatProvider } from "./openai-provider.js";
+import { createOpenAICompatibleChatProvider, createOpenAIChatProvider } from "./openai-provider.js";
 import type {
   AIProvider,
   OpenAIChatProviderConfigFileOptions,
   OpenAIChatProviderFileConfig,
-  OpenAIChatProviderOptions
+  OpenAIChatProviderOptions,
+  OpenAICompatibleChatProviderConfigFileOptions,
+  OpenAICompatibleChatProviderFileConfig,
+  OpenAICompatibleChatProviderOptions
 } from "./types.js";
 
-type OpenAIConfigDocument = OpenAIChatProviderFileConfig & {
+type OpenAICompatibleConfigDocument = OpenAICompatibleChatProviderFileConfig & {
   openai?: OpenAIChatProviderFileConfig;
+  openaiCompatible?: OpenAICompatibleChatProviderFileConfig;
 };
 
 function resolveConfigPath(configPath?: string): string | null {
   const rawPath =
     configPath ??
+    process.env.CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH ??
     process.env.CYCLE_OPENAI_CONFIG_PATH ??
     process.env.OPENAI_CONFIG_PATH;
 
@@ -26,10 +31,9 @@ function resolveConfigPath(configPath?: string): string | null {
   return isAbsolute(rawPath) ? rawPath : resolve(process.cwd(), rawPath);
 }
 
-function parseConfigDocument(configPath: string): OpenAIConfigDocument {
+function parseConfigDocument(configPath: string): OpenAICompatibleConfigDocument {
   const content = readFileSync(configPath, "utf8");
-  const parsed = JSON.parse(content) as OpenAIConfigDocument;
-  return parsed;
+  return JSON.parse(content) as OpenAICompatibleConfigDocument;
 }
 
 function resolveOptionValue(
@@ -48,14 +52,18 @@ function resolveOptionValue(
 }
 
 function toProviderOptions(
-  config: OpenAIChatProviderFileConfig
-): OpenAIChatProviderOptions {
-  const options: OpenAIChatProviderOptions = {};
+  config: OpenAICompatibleChatProviderFileConfig
+): OpenAICompatibleChatProviderOptions {
+  const options: OpenAICompatibleChatProviderOptions = {};
 
   const apiKey = resolveOptionValue(config.apiKey, config.apiKeyEnv);
   const baseURL = resolveOptionValue(config.baseURL, config.baseURLEnv);
   const organization = resolveOptionValue(config.organization, config.organizationEnv);
   const project = resolveOptionValue(config.project, config.projectEnv);
+
+  if (config.providerName !== undefined) {
+    options.providerName = config.providerName;
+  }
 
   if (apiKey !== undefined) {
     options.apiKey = apiKey;
@@ -71,6 +79,10 @@ function toProviderOptions(
 
   if (project !== undefined) {
     options.project = project;
+  }
+
+  if (config.defaultHeaders !== undefined) {
+    options.defaultHeaders = { ...config.defaultHeaders };
   }
 
   if (config.defaultModel !== undefined) {
@@ -100,25 +112,57 @@ function toProviderOptions(
   return options;
 }
 
-export function loadOpenAIChatProviderOptionsFromConfigFile(
-  options: OpenAIChatProviderConfigFileOptions = {}
-): OpenAIChatProviderOptions {
+function pickProviderConfig(
+  parsed: OpenAICompatibleConfigDocument
+): OpenAICompatibleChatProviderFileConfig {
+  return parsed.openaiCompatible ?? parsed.openai ?? parsed;
+}
+
+export function loadOpenAICompatibleChatProviderOptionsFromConfigFile(
+  options: OpenAICompatibleChatProviderConfigFileOptions = {}
+): OpenAICompatibleChatProviderOptions {
   const resolvedPath = resolveConfigPath(options.configPath);
-  let fileOptions: OpenAIChatProviderOptions = {};
+  let fileOptions: OpenAICompatibleChatProviderOptions = {};
 
   if (resolvedPath) {
     const parsed = parseConfigDocument(resolvedPath);
-    fileOptions = toProviderOptions(parsed.openai ?? parsed);
+    fileOptions = toProviderOptions(pickProviderConfig(parsed));
   }
 
   return {
     ...fileOptions,
-    ...options.overrides
+    ...options.overrides,
+    ...(options.overrides?.defaultHeaders
+      ? {
+          defaultHeaders: {
+            ...(fileOptions.defaultHeaders ?? {}),
+            ...options.overrides.defaultHeaders
+          }
+        }
+      : {})
   };
 }
 
-export function resolveOpenAIChatConfigPath(configPath?: string): string | null {
+export function resolveOpenAICompatibleChatConfigPath(configPath?: string): string | null {
   return resolveConfigPath(configPath);
+}
+
+export function createOpenAICompatibleChatProviderFromConfigFile(
+  options?: OpenAICompatibleChatProviderConfigFileOptions
+): AIProvider {
+  return createOpenAICompatibleChatProvider(
+    loadOpenAICompatibleChatProviderOptionsFromConfigFile(options)
+  );
+}
+
+export function loadOpenAIChatProviderOptionsFromConfigFile(
+  options: OpenAIChatProviderConfigFileOptions = {}
+): OpenAIChatProviderOptions {
+  return loadOpenAICompatibleChatProviderOptionsFromConfigFile(options);
+}
+
+export function resolveOpenAIChatConfigPath(configPath?: string): string | null {
+  return resolveOpenAICompatibleChatConfigPath(configPath);
 }
 
 export function createOpenAIChatProviderFromConfigFile(

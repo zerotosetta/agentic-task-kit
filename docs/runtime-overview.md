@@ -9,9 +9,9 @@
 - sequential task execution
 - workflow/task execution events
 - structured task log channel via `ctx.log`
-- pluggable `ctx.ai.chat()` provider interface
-- OpenAI Chat Completions provider adapter
-- separate config file loader for OpenAI provider
+- pluggable `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
+- OpenAI-compatible Chat Completions provider adapter
+- separate config file loader for OpenAI-compatible provider
 - in-memory memory and artifact stores
 - CLI renderer with:
   - `compact`
@@ -23,5 +23,5 @@
 ## Current limitation
 - parallel transition is typed but not implemented in the Foundation MVP
 - durable execution is not implemented
-- OpenAI adapter 는 chat 호출만 우선 지원하고 embeddings adapter 는 아직 없다
+- embeddings adapter 는 아직 없다
 - hybrid retrieval currently uses lightweight lexical-first scoring

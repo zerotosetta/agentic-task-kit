@@ -5,19 +5,30 @@ export { createTaskLogger } from "./logging.js";
 export { InMemoryMemoryStore, createObservedMemoryStore } from "./memory.js";
 export { InMemoryArtifactStore, createObservedArtifactStore } from "./artifacts.js";
 export {
+  createOpenAICompatibleChatProviderFromConfigFile,
+  loadOpenAICompatibleChatProviderOptionsFromConfigFile,
+  resolveOpenAICompatibleChatConfigPath,
   createOpenAIChatProviderFromConfigFile,
   loadOpenAIChatProviderOptionsFromConfigFile,
   resolveOpenAIChatConfigPath
 } from "./openai-config.js";
-export { createOpenAIChatProvider } from "./openai-provider.js";
+export {
+  createOpenAICompatibleChatProvider,
+  createOpenAIChatProvider
+} from "./openai-provider.js";
 export { Task } from "./task.js";
 export { createCLIRenderer } from "./renderer.js";
 export { ReportWorkflow } from "./examples/report-workflow.js";
 export { OpenAISummaryWorkflow } from "./examples/openai-summary-workflow.js";
+export { OpenAIStreamingSummaryWorkflow } from "./examples/openai-streaming-summary-workflow.js";
 export type {
   AIChatRequest,
   AIChatResponse,
+  AIChatStream,
+  AIChatStreamChunk,
   AIChatUsage,
+  AIHTTPRequestOptions,
+  AIHTTPHeaders,
   AIProvider,
   AIReasoningEffort,
   AIChatMessageRole,
@@ -40,6 +51,9 @@ export type {
   MemoryPiece,
   MemoryScope,
   MemoryStore,
+  OpenAICompatibleChatProviderOptions,
+  OpenAICompatibleChatProviderFileConfig,
+  OpenAICompatibleChatProviderConfigFileOptions,
   OpenAIChatProviderOptions,
   OpenAIChatProviderFileConfig,
   OpenAIChatProviderConfigFileOptions,

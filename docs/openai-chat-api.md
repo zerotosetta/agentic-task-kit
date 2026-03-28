@@ -1,14 +1,16 @@
-# OpenAI Chat API
+# OpenAI-compatible Chat API
 
-`Cycle` 는 `createOpenAIChatProvider()` 로 OpenAI Chat Completions 기반 AI 호출을 연결할 수 있다.
+`Cycle` 는 `createOpenAICompatibleChatProvider()` 로 OpenAI Chat Completions 스펙 기반 AI 호출을 연결할 수 있다.
+기본 OpenAI API 뿐 아니라 같은 스펙을 따르는 다른 model API 로도 `baseURL` 과 `defaultHeaders` 만 바꿔 쉽게 전환할 수 있다.
 설정은 별도 JSON 파일 경로로도 읽을 수 있다.
 
 ## 기본 사용
 ```ts
-import { createCycle, createOpenAIChatProvider } from "agentic-task-kit";
+import { createCycle, createOpenAICompatibleChatProvider } from "agentic-task-kit";
 
 const cycle = createCycle({
-  aiProvider: createOpenAIChatProvider({
+  aiProvider: createOpenAICompatibleChatProvider({
+    providerName: "openai",
     defaultModel: "gpt-5.2",
     timeoutMs: 20_000,
     maxRetries: 2
@@ -21,11 +23,11 @@ const cycle = createCycle({
 ```ts
 import {
   createCycle,
-  createOpenAIChatProviderFromConfigFile
+  createOpenAICompatibleChatProviderFromConfigFile
 } from "agentic-task-kit";
 
 const cycle = createCycle({
-  aiProvider: createOpenAIChatProviderFromConfigFile({
+  aiProvider: createOpenAICompatibleChatProviderFromConfigFile({
     configPath: "./cycle.config.json"
   })
 });
@@ -48,11 +50,50 @@ const completion = await ctx.ai.chat({
 });
 ```
 
+요청 단위 header 추가:
+
+```ts
+const completion = await ctx.ai.chat({
+  messages: [
+    {
+      role: "user",
+      content: "Summarize this payload."
+    }
+  ],
+  http: {
+    headers: {
+      "X-Request-ID": "workflow-run-123"
+    }
+  }
+});
+```
+
+streaming 응답:
+
+```ts
+const stream = await ctx.ai.chatStream({
+  messages: [
+    {
+      role: "user",
+      content: "Stream a short summary."
+    }
+  ]
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.deltaText);
+}
+
+const response = await stream.finalResponse;
+```
+
 ## 지원 설정
+- `providerName`
 - `apiKey`
 - `baseURL`
 - `organization`
 - `project`
+- `defaultHeaders`
 - `defaultModel`
 - `timeoutMs`
 - `maxRetries`
@@ -68,8 +109,11 @@ const completion = await ctx.ai.chat({
 - `OPENAI_MODEL`
 - `OPENAI_TIMEOUT_MS`
 - `OPENAI_MAX_RETRIES`
+- `OPENAI_PROVIDER_NAME`
+- `OPENAI_DEFAULT_HEADERS_JSON`
 - `OPENAI_MAX_COMPLETION_TOKENS`
 - `OPENAI_REASONING_EFFORT`
+- `CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH`
 - `CYCLE_OPENAI_CONFIG_PATH`
 - `OPENAI_CONFIG_PATH`
 
@@ -78,9 +122,15 @@ const completion = await ctx.ai.chat({
 ## 설정 파일 형식
 ```json
 {
-  "openai": {
+  "openaiCompatible": {
+    "providerName": "openrouter",
     "apiKeyEnv": "OPENAI_API_KEY",
-    "defaultModel": "gpt-5.2",
+    "baseURL": "https://openrouter.ai/api/v1",
+    "defaultHeaders": {
+      "HTTP-Referer": "https://example.test/cycle",
+      "X-Title": "Cycle Sample"
+    },
+    "defaultModel": "openai/gpt-5.2-mini",
     "timeoutMs": 20000,
     "maxRetries": 2
   }
@@ -88,6 +138,7 @@ const completion = await ctx.ai.chat({
 ```
 
 지원 필드:
+- `providerName`
 - `apiKey`
 - `apiKeyEnv`
 - `baseURL`
@@ -96,6 +147,7 @@ const completion = await ctx.ai.chat({
 - `organizationEnv`
 - `project`
 - `projectEnv`
+- `defaultHeaders`
 - `defaultModel`
 - `timeoutMs`
 - `maxRetries`
@@ -103,9 +155,16 @@ const completion = await ctx.ai.chat({
 - `defaultMaxCompletionTokens`
 - `defaultReasoningEffort`
 
+기존 `openai` 섹션도 계속 읽을 수 있다.
+
 ## 예제 실행
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai
+```
+
+streaming 예제 실행:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
 ```
 
 line mode 로 확인하려면:
@@ -118,6 +177,14 @@ OPENAI_API_KEY=your_key_here CYCLE_LIVE=0 npm run example:openai
 OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm run example:openai
 ```
 
+요청 단위 headers 지정:
+```bash
+OPENAI_API_KEY=your_key_here \
+CYCLE_REQUEST_HEADERS_JSON='{"X-Request-ID":"example-run-1"}' \
+npm run example:openai
+```
+
 ## 참고
 - 이 adapter 는 현재 OpenAI Chat Completions API 기준이다.
+- `createOpenAIChatProvider()` / `createOpenAIChatProviderFromConfigFile()` 는 하위 호환 alias 로 유지된다.
 - OpenAI 공식 문서는 신규 프로젝트에 Responses API 를 우선 권장하지만, 이 라이브러리의 현재 adapter 는 사용자 요청에 맞춰 Chat Completions 를 먼저 지원한다.

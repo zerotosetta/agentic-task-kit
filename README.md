@@ -9,9 +9,9 @@ Cycle foundation MVP 를 구현하는 저장소입니다.
 - in-memory artifact store
 - execution event stream
 - `TaskLogger` / `ctx.log`
-- `ctx.ai.chat()` provider interface
-- OpenAI Chat Completions adapter
-- separate OpenAI config file loading
+- `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
+- OpenAI-compatible Chat Completions adapter
+- separate OpenAI-compatible config file loading
 - compact CLI renderer
 - live rendering off line mode
 - sample `ReportWorkflow`
@@ -46,6 +46,10 @@ npm run example:consumer
 6. OpenAI Chat example 실행:
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai
+```
+7. OpenAI-compatible streaming example 실행:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
 ```
 
 ## CLI renderer 빠른 사용법
@@ -83,32 +87,41 @@ CYCLE_LIVE=0 npm run example:consumer
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai
 ```
+- OpenAI-compatible streaming workflow:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
+```
 
 ## Config file
-OpenAI 설정은 코드나 env 뿐 아니라 별도 JSON 파일로도 읽을 수 있습니다.
+OpenAI-compatible 설정은 코드나 env 뿐 아니라 별도 JSON 파일로도 읽을 수 있습니다.
 
 ```ts
 import {
   createCycle,
-  createOpenAIChatProviderFromConfigFile
+  createOpenAICompatibleChatProviderFromConfigFile
 } from "agentic-task-kit";
 
 const cycle = createCycle({
-  aiProvider: createOpenAIChatProviderFromConfigFile({
+  aiProvider: createOpenAICompatibleChatProviderFromConfigFile({
     configPath: "./cycle.config.json"
   })
 });
 ```
 
-`CYCLE_OPENAI_CONFIG_PATH` 또는 `OPENAI_CONFIG_PATH` 로도 경로를 지정할 수 있습니다.
+`CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH`, `CYCLE_OPENAI_CONFIG_PATH`, `OPENAI_CONFIG_PATH` 로도 경로를 지정할 수 있습니다.
 
-## OpenAI provider quick usage
+## OpenAI-compatible provider quick usage
 ```ts
-import { createCycle, createOpenAIChatProvider } from "agentic-task-kit";
+import { createCycle, createOpenAICompatibleChatProvider } from "agentic-task-kit";
 
 const cycle = createCycle({
-  aiProvider: createOpenAIChatProvider({
+  aiProvider: createOpenAICompatibleChatProvider({
+    providerName: "openrouter",
+    baseURL: "https://openrouter.ai/api/v1",
     defaultModel: "gpt-5.2",
+    defaultHeaders: {
+      "HTTP-Referer": "https://example.test/cycle"
+    },
     timeoutMs: 20_000,
     maxRetries: 2
   })

@@ -48,6 +48,16 @@ export OPENAI_MODEL=gpt-5.2
 export OPENAI_TIMEOUT_MS=20000
 export OPENAI_MAX_RETRIES=2
 ```
+- OpenAI-compatible streaming:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
+```
+- request-scoped headers:
+```bash
+OPENAI_API_KEY=your_key_here \
+CYCLE_REQUEST_HEADERS_JSON='{"X-Request-ID":"local-example"}' \
+npm run example:openai
+```
 
 ## Sample project
 repo root example app:
@@ -62,4 +72,10 @@ config file path override:
 ```bash
 cd sample-project
 OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm run start
+```
+
+streaming sample project run:
+```bash
+cd sample-project
+OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run start
 ```
