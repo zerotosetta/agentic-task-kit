@@ -189,7 +189,7 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 
 streaming 예제 실행:
 ```bash
-OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
+OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
 
 line mode 로 확인하려면:

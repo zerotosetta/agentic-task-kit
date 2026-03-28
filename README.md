@@ -54,7 +54,7 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 ```
 8. OpenAI-compatible streaming example 실행:
 ```bash
-OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
+OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
 
 ## CLI renderer 빠른 사용법
@@ -129,7 +129,7 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 ```
 - OpenAI-compatible streaming workflow:
 ```bash
-OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
+OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
 - workspace root Java modernization pipeline example:
 ```bash

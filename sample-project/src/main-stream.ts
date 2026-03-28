@@ -7,7 +7,7 @@ import {
   createCycle,
   createOpenAICompatibleChatProvider,
   loadOpenAICompatibleChatProviderOptionsFromConfigFile,
-  OpenAISummaryWorkflow,
+  OpenAIStreamingSummaryWorkflow,
   resolveOpenAICompatibleChatConfigPath,
   type CLIRendererOptions
 } from "agentic-task-kit";
@@ -117,9 +117,9 @@ const cycle = createCycle({
   observers: [renderer]
 });
 
-cycle.register("openai-summary", OpenAISummaryWorkflow);
+cycle.register("openai-streaming-summary", OpenAIStreamingSummaryWorkflow);
 
-const { frame } = await cycle.run("openai-summary", {
+const { frame } = await cycle.run("openai-streaming-summary", {
   product: "Cycle",
   objective: "Summarize OpenAI-compatible configuration support for a sample host application.",
   configPath,
@@ -127,5 +127,5 @@ const { frame } = await cycle.run("openai-summary", {
 });
 
 process.stdout.write(
-  `Sample project finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")}\n`
+  `Sample streaming project finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")}\n`
 );

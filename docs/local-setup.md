@@ -67,7 +67,7 @@ export OPENAI_MAX_RETRIES=2
 ```
 - OpenAI-compatible streaming:
 ```bash
-OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run example:openai
+OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
 - request-scoped headers:
 ```bash
@@ -102,7 +102,7 @@ OPENAI_API_KEY=your_key_here CYCLE_OPENAI_CONFIG_PATH=./cycle.config.json npm ru
 streaming sample project run:
 ```bash
 cd sample-project
-OPENAI_API_KEY=your_key_here CYCLE_STREAM=1 npm run start
+OPENAI_API_KEY=your_key_here npm run start:stream
 ```
 
 ## Workspace root example project

@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "example": "tsx ./scripts/run-example.ts",
     "example:consumer": "tsx ./scripts/run-consumer-example.ts",
-    "example:openai": "tsx ./scripts/run-openai-example.ts"
+    "example:openai": "tsx ./scripts/run-openai-example.ts",
+    "example:openai:stream": "tsx ./scripts/run-openai-streaming-example.ts"
   },
   "keywords": [
     "workflow",

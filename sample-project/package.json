@@ -7,7 +7,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prestart": "npm run build:library",
     "start": "tsx ./src/main.ts",
-    "start:line": "CYCLE_LIVE=0 tsx ./src/main.ts"
+    "start:line": "CYCLE_LIVE=0 tsx ./src/main.ts",
+    "start:ink": "CYCLE_RENDER_MODE=ink tsx ./src/main.ts",
+    "start:stream": "tsx ./src/main-stream.ts"
   },
   "dependencies": {
     "agentic-task-kit": "file:.."
