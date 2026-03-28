@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 
+import { createUnavailableAIProvider } from "./ai.js";
 import { createObservedArtifactStore, InMemoryArtifactStore } from "./artifacts.js";
 import { ExecutionBroadcaster } from "./events.js";
 import { createTaskLogger } from "./logging.js";
 import { createObservedMemoryStore, InMemoryMemoryStore } from "./memory.js";
 import type {
+  AIProvider,
   AISession,
   AISessionMessage,
   ArtifactStore,
@@ -122,6 +124,7 @@ async function injectMemory(memory: MemoryStore, pieces: RunOptions["memoryInjec
 
 class DefaultCycle implements Cycle {
   private readonly workflows = new Map<string, WorkflowDefinition>();
+  private readonly aiProvider: AIProvider;
   private readonly memoryStore: MemoryStore;
   private readonly artifactStore: ArtifactStore;
   private readonly broadcaster: ExecutionBroadcaster;
@@ -130,11 +133,12 @@ class DefaultCycle implements Cycle {
   private readonly embeddingModelId: string;
 
   constructor(options: CycleOptions = {}) {
+    this.aiProvider = options.aiProvider ?? createUnavailableAIProvider();
     this.memoryStore = options.memoryStore ?? new InMemoryMemoryStore();
     this.artifactStore = options.artifactStore ?? new InMemoryArtifactStore();
     this.broadcaster = new ExecutionBroadcaster(options.observers ?? []);
     this.now = options.now ?? (() => Date.now());
-    this.llmModelId = options.llmModelId ?? "foundation-llm";
+    this.llmModelId = options.llmModelId ?? this.aiProvider.defaultChatModel ?? "foundation-llm";
     this.embeddingModelId = options.embeddingModelId ?? "foundation-embedding";
   }
 
@@ -225,6 +229,7 @@ class DefaultCycle implements Cycle {
           runId,
           input,
           session: createSession(this.llmModelId, this.embeddingModelId),
+          ai: this.aiProvider,
           memory,
           artifacts,
           log,

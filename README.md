@@ -9,6 +9,8 @@ Cycle foundation MVP 를 구현하는 저장소입니다.
 - in-memory artifact store
 - execution event stream
 - `TaskLogger` / `ctx.log`
+- `ctx.ai.chat()` provider interface
+- OpenAI Chat Completions adapter
 - compact CLI renderer
 - live rendering off line mode
 - sample `ReportWorkflow`
@@ -40,6 +42,10 @@ npm run example
 ```bash
 npm run example:consumer
 ```
+6. OpenAI Chat example 실행:
+```bash
+OPENAI_API_KEY=your_key_here npm run example:openai
+```
 
 ## CLI renderer 빠른 사용법
 - live rendering on:
@@ -53,6 +59,10 @@ CYCLE_LIVE=0 npm run example
 - line mode 강제:
 ```bash
 CYCLE_RENDER_MODE=line npm run example
+```
+- OpenAI example line mode:
+```bash
+OPENAI_API_KEY=your_key_here CYCLE_LIVE=0 npm run example:openai
 ```
 
 ## Examples
@@ -68,8 +78,26 @@ npm run example:consumer
 ```bash
 CYCLE_LIVE=0 npm run example:consumer
 ```
+- OpenAI Chat workflow:
+```bash
+OPENAI_API_KEY=your_key_here npm run example:openai
+```
+
+## OpenAI provider quick usage
+```ts
+import { createCycle, createOpenAIChatProvider } from "agentic-task-kit";
+
+const cycle = createCycle({
+  aiProvider: createOpenAIChatProvider({
+    defaultModel: "gpt-5.2",
+    timeoutMs: 20_000,
+    maxRetries: 2
+  })
+});
+```
 
 ## 문서
 - [local setup](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/local-setup.md)
 - [runtime overview](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/runtime-overview.md)
 - [consumer example](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/consumer-example.md)
+- [OpenAI Chat API](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/openai-chat-api.md)

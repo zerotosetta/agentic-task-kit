@@ -90,9 +90,12 @@ export type Artifact = {
   meta?: Record<string, unknown>;
 };
 
+export type AIChatMessageRole = "developer" | "system" | "user" | "assistant";
+
 export type AISessionMessage = {
-  role: "system" | "user" | "assistant";
+  role: AIChatMessageRole;
   content: string;
+  name?: string;
 };
 
 export type AISession = {
@@ -102,6 +105,41 @@ export type AISession = {
   messages: AISessionMessage[];
   fork: (opts?: { label?: string }) => AISession;
 };
+
+export type AIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export type AIChatRequest = {
+  model?: string;
+  messages: AISessionMessage[];
+  temperature?: number;
+  maxCompletionTokens?: number;
+  reasoningEffort?: AIReasoningEffort;
+  metadata?: Record<string, string>;
+  promptCacheKey?: string;
+};
+
+export type AIChatUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  reasoningTokens?: number;
+};
+
+export type AIChatResponse = {
+  provider: string;
+  model: string;
+  outputText: string;
+  message: AISessionMessage;
+  finishReason?: string | null;
+  usage?: AIChatUsage;
+  raw?: unknown;
+};
+
+export interface AIProvider {
+  provider: string;
+  defaultChatModel?: string | undefined;
+  chat(request: AIChatRequest): Promise<AIChatResponse>;
+}
 
 export type TaskLogLevel = "debug" | "info" | "warn" | "error" | "success";
 
@@ -265,6 +303,7 @@ export interface WorkflowContext {
   runId: string;
   input: unknown;
   session: AISession;
+  ai: AIProvider;
   memory: MemoryStore;
   artifacts: ArtifactStore;
   log: TaskLogger;
@@ -288,10 +327,24 @@ export interface Cycle {
 }
 
 export type CycleOptions = {
+  aiProvider?: AIProvider;
   memoryStore?: MemoryStore;
   artifactStore?: ArtifactStore;
   observers?: ExecutionObserver[];
   now?: () => number;
   llmModelId?: string;
   embeddingModelId?: string;
+};
+
+export type OpenAIChatProviderOptions = {
+  apiKey?: string;
+  baseURL?: string;
+  organization?: string;
+  project?: string;
+  defaultModel?: string;
+  timeoutMs?: number;
+  maxRetries?: number;
+  defaultTemperature?: number;
+  defaultMaxCompletionTokens?: number;
+  defaultReasoningEffort?: AIReasoningEffort;
 };
