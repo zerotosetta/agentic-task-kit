@@ -81,4 +81,75 @@ describe("CLI renderer", () => {
     expect(output).toContain("Cycle report run=run_2");
     expect(output).toContain("Status:");
   });
+
+  it("shows failure reasons in line mode and compact mode", async () => {
+    const lineRenderer = createCLIRenderer({
+      enabled: false,
+      stream: stream as unknown as NodeJS.WriteStream
+    });
+
+    lineRenderer.start();
+    lineRenderer.onEvent({
+      type: "task.failed",
+      timestamp: Date.UTC(2026, 2, 28, 12, 0, 3),
+      workflowId: "report",
+      runId: "run_3",
+      taskName: "generate",
+      summary: "Request timed out.",
+      status: "fail",
+      meta: {
+        errorMessage: "Request timed out."
+      }
+    });
+    lineRenderer.stop("fail");
+
+    expect(output).toContain("task.failed generate Request timed out.");
+
+    output = "";
+    const ttyLike = stream as unknown as NodeJS.WriteStream & { isTTY?: boolean };
+    ttyLike.isTTY = true;
+    const compactRenderer = createCLIRenderer({
+      enabled: true,
+      mode: "compact",
+      refreshMs: 0,
+      stream: ttyLike
+    });
+
+    compactRenderer.start();
+    compactRenderer.onEvent({
+      type: "workflow.started",
+      timestamp: 1,
+      workflowId: "report",
+      runId: "run_4",
+      summary: "report start=generate"
+    });
+    compactRenderer.onEvent({
+      type: "task.failed",
+      timestamp: 2,
+      workflowId: "report",
+      runId: "run_4",
+      taskName: "generate",
+      summary: "Request timed out.",
+      status: "fail",
+      meta: {
+        errorMessage: "Request timed out."
+      }
+    });
+    compactRenderer.onEvent({
+      type: "workflow.failed",
+      timestamp: 3,
+      workflowId: "report",
+      runId: "run_4",
+      summary: "report failed",
+      status: "fail",
+      meta: {
+        errors: ["Request timed out."],
+        errorMessage: "Request timed out."
+      }
+    });
+    await compactRenderer.onFlush?.();
+    compactRenderer.stop("fail");
+
+    expect(output).toContain("Failure: Request timed out.");
+  });
 });

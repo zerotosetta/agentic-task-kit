@@ -262,8 +262,9 @@ class DefaultCycle implements Cycle {
         frame.checkpointSeq += 1;
 
         if (result.status === "fail") {
+          const errorMessage = result.error?.message ?? `${task.name} failed`;
           frame.failedTasks.push(task.name);
-          frame.errors.push(result.error?.message ?? `${task.name} failed`);
+          frame.errors.push(errorMessage);
           finalStatus = "fail";
           await runBroadcaster.emit({
             type: "task.failed",
@@ -271,8 +272,18 @@ class DefaultCycle implements Cycle {
             workflowId,
             runId,
             taskName: task.name,
-            summary: result.error?.message ?? `failed ${task.name}`,
+            summary: errorMessage,
             status: result.status
+            ,
+            meta: {
+              errorMessage,
+              ...(result.error?.code ? { errorCode: result.error.code } : {}),
+              ...(result.error?.details !== undefined
+                ? {
+                    errorDetails: result.error.details
+                  }
+                : {})
+            }
           });
         } else {
           frame.completedTasks.push(task.name);
@@ -320,7 +331,8 @@ class DefaultCycle implements Cycle {
           summary: `${workflow.name} failed`,
           status: finalStatus,
           meta: {
-            errors: [...frame.errors]
+            errors: [...frame.errors],
+            errorMessage: frame.errors[frame.errors.length - 1]
           }
         });
       } else {
@@ -352,7 +364,10 @@ class DefaultCycle implements Cycle {
         workflowId,
         runId,
         summary: message,
-        status: "fail"
+        status: "fail",
+        meta: {
+          errorMessage: message
+        }
       });
       await runBroadcaster.flush();
       await runBroadcaster.stop("fail");

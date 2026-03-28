@@ -10,10 +10,11 @@ type ResolvedMode = "line" | "compact" | "jsonl" | "plain";
 type RequestedMode = NonNullable<CLIRendererOptions["mode"]>;
 
 type RendererState = {
-  workflowId?: string;
-  runId?: string;
-  status?: string;
-  currentTask?: string;
+  workflowId: string | undefined;
+  runId: string | undefined;
+  status: string | undefined;
+  currentTask: string | undefined;
+  lastFailure: string | undefined;
   activeTasks: Set<string>;
   completedTasks: string[];
   recentEvents: string[];
@@ -44,8 +45,47 @@ function formatClock(timestamp: number): string {
   return date.toISOString().slice(11, 19);
 }
 
+function firstErrorFromMeta(meta: Record<string, unknown> | undefined): string | undefined {
+  const errors = meta?.errors;
+  if (!Array.isArray(errors)) {
+    return undefined;
+  }
+
+  const first = errors.find((error) => typeof error === "string");
+  return typeof first === "string" ? first : undefined;
+}
+
+function failureReasonForEvent(event: ExecutionEvent): string | undefined {
+  if (event.type === "task.failed") {
+    if (typeof event.meta?.errorMessage === "string") {
+      return event.meta.errorMessage;
+    }
+
+    return event.summary.startsWith("failed ") ? undefined : event.summary;
+  }
+
+  if (event.type === "workflow.failed") {
+    if (typeof event.meta?.errorMessage === "string") {
+      return event.meta.errorMessage;
+    }
+
+    return firstErrorFromMeta(event.meta) ?? (event.summary.endsWith(" failed") ? undefined : event.summary);
+  }
+
+  return undefined;
+}
+
+function failureSuffix(summary: string, reason: string | undefined): string {
+  if (!reason || reason === summary) {
+    return "";
+  }
+
+  return ` reason=${reason}`;
+}
+
 function lineForEvent(event: ExecutionEvent): string {
   const prefix = `[${formatClock(event.timestamp)}]`;
+  const failureReason = failureReasonForEvent(event);
 
   switch (event.type) {
     case "workflow.started":
@@ -53,13 +93,14 @@ function lineForEvent(event: ExecutionEvent): string {
     case "workflow.completed":
       return `${prefix} workflow completed ${event.summary}`;
     case "workflow.failed":
-      return `${prefix} workflow failed ${event.summary}`;
+      return `${prefix} workflow failed ${event.summary}${failureSuffix(event.summary, failureReason)}`;
     case "task.queued":
     case "task.started":
     case "task.completed":
-    case "task.failed":
     case "task.retry_scheduled":
       return `${prefix} ${event.type} ${event.taskName} ${event.summary}`.trim();
+    case "task.failed":
+      return `${prefix} task.failed ${event.taskName} ${event.summary}${failureSuffix(event.summary, failureReason)}`.trim();
     case "branch.started":
     case "branch.completed":
     case "join.waiting":
@@ -101,6 +142,11 @@ class DefaultCLIRenderer implements CLIRenderer {
       Pick<CLIRendererOptions, "mode" | "logLevel">
   >;
   private readonly state: RendererState = {
+    workflowId: undefined,
+    runId: undefined,
+    status: undefined,
+    currentTask: undefined,
+    lastFailure: undefined,
     activeTasks: new Set(),
     completedTasks: [],
     recentEvents: [],
@@ -252,13 +298,16 @@ class DefaultCLIRenderer implements CLIRenderer {
     switch (event.type) {
       case "workflow.started":
         this.state.status = "running";
+        this.state.lastFailure = undefined;
         break;
       case "workflow.completed":
         this.state.status = event.status;
+        this.state.lastFailure = undefined;
         this.state.activeTasks.clear();
         break;
       case "workflow.failed":
         this.state.status = event.status;
+        this.state.lastFailure = failureReasonForEvent(event) ?? this.state.lastFailure;
         this.state.errorCount += 1;
         this.state.activeTasks.clear();
         break;
@@ -273,6 +322,10 @@ class DefaultCLIRenderer implements CLIRenderer {
         break;
       case "task.failed":
         this.state.activeTasks.delete(event.taskName);
+        this.state.lastFailure =
+          failureReasonForEvent(event) !== undefined
+            ? `${event.taskName}: ${failureReasonForEvent(event)}`
+            : `${event.taskName} failed`;
         this.state.errorCount += 1;
         break;
       case "task.retry_scheduled":
@@ -323,6 +376,7 @@ class DefaultCLIRenderer implements CLIRenderer {
       `Active: ${[...this.state.activeTasks].join(", ") || "-"}`,
       `Completed: ${this.state.completedTasks.join(", ") || "-"}`,
       `Counts: artifacts=${this.state.artifactCount} memoryWrites=${this.state.memoryWrites} retries=${this.state.retryCount} errors=${this.state.errorCount}`,
+      `Failure: ${this.state.lastFailure ?? "-"}`,
       `Recent log: ${
         this.state.recentLogs.length > 0
           ? this.state.recentLogs
