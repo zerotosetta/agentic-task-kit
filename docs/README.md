@@ -4,6 +4,7 @@
 문서는 실제 사용 기준으로 짧고 명확하게 유지합니다.
 
 권장 문서:
+- developer guide
 - memory guide
 - local setup
 - runtime and deployment overview

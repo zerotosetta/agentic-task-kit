@@ -3,6 +3,17 @@
   "version": "0.1.0",
   "description": "Cycle foundation MVP for implementing AX Workflow in Node.js and TypeScript.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skyend/agentic-task-kit.git"
+  },
+  "homepage": "https://github.com/skyend/agentic-task-kit#readme",
+  "bugs": {
+    "url": "https://github.com/skyend/agentic-task-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

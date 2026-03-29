@@ -24,5 +24,5 @@ CYCLE_LIVE=0 npm run example:consumer
 3. renderer 가 실행 상태와 task log 를 CLI 로 출력한다.
 
 ## 참고 파일
-- runnable script: [run-consumer-example.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/scripts/run-consumer-example.ts)
-- baseline sample workflow: [report-workflow.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/src/examples/report-workflow.ts)
+- runnable script: [run-consumer-example.ts](../scripts/run-consumer-example.ts)
+- baseline sample workflow: [report-workflow.ts](../src/examples/report-workflow.ts)
