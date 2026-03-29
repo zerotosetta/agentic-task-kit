@@ -2,7 +2,14 @@ export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
 export { ExecutionBroadcaster } from "./events.js";
 export { createTaskLogger } from "./logging.js";
-export { InMemoryMemoryStore, createObservedMemoryStore } from "./memory.js";
+export {
+  createObservedMemoryEngine,
+  DeterministicHashEmbeddingProvider,
+  InMemoryGraphStore,
+  InMemoryKVStore,
+  InMemoryMemoryEngine,
+  InMemoryVectorStore
+} from "./memory.js";
 export { InMemoryArtifactStore, createObservedArtifactStore } from "./artifacts.js";
 export {
   createOpenAICompatibleChatProviderFromConfigFile,
@@ -41,17 +48,35 @@ export type {
   CLIRendererOptions,
   Cycle,
   CycleOptions,
+  EmbeddingProvider,
   ExecutionEvent,
   ExecutionFrame,
   ExecutionObserver,
   ExecutionStatus,
-  HybridSearchHit,
-  HybridSearchParams,
+  GraphStore,
   JoinPolicy,
-  MemoryCategory,
-  MemoryPiece,
-  MemoryScope,
-  MemoryStore,
+  KVStore,
+  KnowledgeMemory,
+  LifecycleReport,
+  MemoryEngine,
+  MemoryKind,
+  MemoryPayload,
+  MemoryPhase,
+  MemoryRecord,
+  MemoryRecordInput,
+  MemoryShard,
+  MemoryTaskType,
+  MemoryWriteReport,
+  RetrieveHit,
+  RetrieveRequest,
+  RetrieveResult,
+  StepExecutionLog,
+  StepMemoryContext,
+  SystemMemory,
+  TaskMemory,
+  UserMemory,
+  VectorStore,
+  WorkflowMemory,
   OpenAICompatibleChatProviderOptions,
   OpenAICompatibleChatProviderFileConfig,
   OpenAICompatibleChatProviderConfigFileOptions,

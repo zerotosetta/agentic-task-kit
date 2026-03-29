@@ -1,9 +1,9 @@
 import { Task } from "../task.js";
 import type {
-  MemoryPiece,
   TaskResult,
   WorkflowDefinition,
-  WorkflowContext
+  WorkflowContext,
+  WorkflowMemory
 } from "../types.js";
 
 function summarizeText(text: string): string {
@@ -17,6 +17,8 @@ function summarizeText(text: string): string {
 
 class AnalyzeTask extends Task {
   name = "analyze";
+  memoryPhase = "PLANNING" as const;
+  memoryTaskType = "workflow" as const;
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     const sourceText =
@@ -28,78 +30,77 @@ class AnalyzeTask extends Task {
       inputLength: sourceText.length
     });
 
-    const hits = await ctx.memory.hybridSearch("project workflow summary", {
-      topK: 5,
-      candidateKKeyword: 25,
-      candidateKVector: 25,
-      alpha: 0.6,
-      beta: 0.4,
-      fusion: "weighted_sum"
+    const retrieved = await ctx.memory.retrieve({
+      query: "project workflow summary",
+      taskType: this.memoryTaskType,
+      phase: this.memoryPhase
     });
 
-    const summaryPiece: MemoryPiece = {
-      key: `workflow.${ctx.workflowId}.task.analyze.summary`,
-      scope: "workflow",
-      category: "summary",
-      description: "Summary produced by analyze task",
-      keywords: ["summary", "analysis"],
-      value: {
-        summary: summarizeText(sourceText),
-        retrievalHitCount: hits.length
-      },
-      importance: 0.7,
-      createdAt: ctx.now(),
-      updatedAt: ctx.now(),
-      sourceTask: this.name
+    const summaryRecordId = `memory.workflow.summary.${ctx.workflowId}.analyze`;
+    const summary = summarizeText(sourceText);
+    const workflowSummary: WorkflowMemory = {
+      workflowId: ctx.workflowId,
+      currentStep: this.name,
+      history: [],
+      contextSummary: summary
     };
 
-    await ctx.memory.put(summaryPiece);
+    await ctx.memory.write({
+      id: summaryRecordId,
+      shard: "workflow",
+      kind: "summary",
+      payload: workflowSummary,
+      description: "Summary produced by analyze task",
+      keywords: ["summary", "analysis", "workflow", "report"],
+      importance: 0.9,
+      workflowId: ctx.workflowId,
+      runId: ctx.runId,
+      sourceTask: this.name,
+      phase: this.memoryPhase,
+      taskType: this.memoryTaskType
+    });
     ctx.log.success("Stored analysis summary", {
-      retrievalHitCount: hits.length
+      retrievalHitCount: retrieved.hits.length
     });
 
     return {
       status: "success",
-      output: summaryPiece.value
+      output: {
+        summaryRecordId,
+        retrievalHitCount: retrieved.hits.length,
+        summary
+      }
     };
   }
 }
 
 class PublishReportTask extends Task {
   name = "publish";
+  memoryPhase = "EXECUTION" as const;
+  memoryTaskType = "workflow" as const;
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     ctx.log.info("Publishing report artifact");
-    const summaryPiece = await ctx.memory.get(
-      `workflow.${ctx.workflowId}.task.analyze.summary`
+    const summaryRecord = await ctx.memory.get(
+      `memory.workflow.summary.${ctx.workflowId}.analyze`,
     );
-
-    const summary = (summaryPiece?.value as { summary?: string } | undefined)?.summary ?? "No summary";
-    const report = `# Cycle Report\n\n- Workflow: ${ctx.workflowId}\n- Summary: ${summary}\n`;
+    const summary = summaryRecord && "contextSummary" in summaryRecord.payload
+      ? summaryRecord.payload.contextSummary
+      : "No summary";
+    const report = [
+      "# Cycle Report",
+      "",
+      `- Workflow: ${ctx.workflowId}`,
+      `- Summary: ${summary}`,
+      `- Retrieved Context: ${ctx.memoryContext?.assembledContext ?? "none"}`
+    ].join("\n");
     const artifact = await ctx.artifacts.create({
       name: "report.md",
       mimeType: "text/markdown",
-      bytes: new TextEncoder().encode(report),
+      bytes: new TextEncoder().encode(`${report}\n`),
       meta: {
         task: this.name
       }
-    });
-
-    await ctx.memory.put({
-      key: `artifact.${artifact.artifactId}.summary`,
-      scope: "workflow",
-      category: "artifact",
-      description: "Artifact metadata for generated report",
-      keywords: ["artifact", "report"],
-      value: {
-        artifactId: artifact.artifactId,
-        name: artifact.name,
-        uri: artifact.uri
-      },
-      importance: 0.8,
-      createdAt: ctx.now(),
-      updatedAt: ctx.now(),
-      sourceTask: this.name
     });
 
     ctx.log.success("Artifact created", {

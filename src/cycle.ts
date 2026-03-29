@@ -4,7 +4,13 @@ import { createUnavailableAIProvider } from "./ai.js";
 import { createObservedArtifactStore, InMemoryArtifactStore } from "./artifacts.js";
 import { ExecutionBroadcaster } from "./events.js";
 import { createTaskLogger } from "./logging.js";
-import { createObservedMemoryStore, InMemoryMemoryStore } from "./memory.js";
+import {
+  createObservedMemoryEngine,
+  InMemoryGraphStore,
+  InMemoryKVStore,
+  InMemoryMemoryEngine,
+  InMemoryVectorStore
+} from "./memory.js";
 import type {
   AIProvider,
   AISession,
@@ -14,8 +20,7 @@ import type {
   CycleOptions,
   ExecutionFrame,
   ExecutionStatus,
-  MemoryPiece,
-  MemoryStore,
+  MemoryRecordInput,
   ParallelTransition,
   RunOptions,
   TaskResult,
@@ -27,7 +32,7 @@ import type {
 function createSession(
   llmModelId: string,
   embeddingModelId: string,
-  messages: AISessionMessage[] = []
+  messages: AISessionMessage[] = [],
 ): AISession {
   return {
     sessionId: randomUUID(),
@@ -38,7 +43,12 @@ function createSession(
   };
 }
 
-function createFrame(workflowId: string, runId: string, start: string, now: number): ExecutionFrame {
+function createFrame(
+  workflowId: string,
+  runId: string,
+  start: string,
+  now: number,
+): ExecutionFrame {
   return {
     workflowId,
     runId,
@@ -56,7 +66,7 @@ function createFrame(workflowId: string, runId: string, start: string, now: numb
 
 function resolveTransition(
   transition: Transition | undefined,
-  status: string
+  status: string,
 ): string | ParallelTransition | undefined {
   if (!transition) {
     return undefined;
@@ -69,7 +79,9 @@ function resolveTransition(
   return transition[status] ?? transition.success;
 }
 
-function ensureSequentialOnly(next: string | ParallelTransition | undefined): string | undefined {
+function ensureSequentialOnly(
+  next: string | ParallelTransition | undefined,
+): string | undefined {
   if (!next) {
     return undefined;
   }
@@ -81,51 +93,67 @@ function ensureSequentialOnly(next: string | ParallelTransition | undefined): st
   throw new Error("Parallel transitions are not implemented in the Foundation MVP.");
 }
 
+function toRagMemoryRecord(
+  workflowId: string,
+  runId: string,
+  now: number,
+  document: { id?: string; text: string; meta?: Record<string, unknown> },
+  index: number,
+): MemoryRecordInput {
+  return {
+    id: `memory.knowledge.raw.rag.${workflowId}.${document.id ?? index}`,
+    shard: "knowledge",
+    kind: "raw",
+    payload: {
+      id: document.id ?? `rag-${index}`,
+      content: document.text,
+      embedding: [],
+      tags: (document.meta?.keywords as string[] | undefined) ?? ["rag", "input"]
+    },
+    description: "RAG document injected at run time",
+    keywords: ["rag", "input", ...(((document.meta?.keywords as string[] | undefined) ?? []))],
+    importance: 0.85,
+    workflowId,
+    runId,
+    phase: "PLANNING",
+    taskType: "default",
+    sourceTask: "run.bootstrap"
+  };
+}
+
 async function injectRag(
   workflowId: string,
-  memory: MemoryStore,
+  runId: string,
+  memory: NonNullable<CycleOptions["memoryEngine"]> | WorkflowContext["memory"],
   now: number,
-  rag: RunOptions["rag"]
+  rag: RunOptions["rag"],
 ): Promise<void> {
   if (!rag) {
     return;
   }
 
   for (const [index, document] of rag.entries()) {
-    const timestamp = now;
-    const piece: MemoryPiece = {
-      key: `workflow.${workflowId}.input.rag.${document.id ?? index}`,
-      scope: "workflow",
-      category: "context",
-      description: "RAG document injected at run time",
-      keywords: ["rag", "input", ...(document.meta?.keywords as string[] | undefined ?? [])],
-      value: {
-        text: document.text,
-        meta: document.meta ?? {}
-      },
-      importance: 0.8,
-      createdAt: timestamp,
-      updatedAt: timestamp
-    };
-
-    await memory.put(piece);
+    await memory.write(toRagMemoryRecord(workflowId, runId, now, document, index));
   }
 }
 
-async function injectMemory(memory: MemoryStore, pieces: RunOptions["memoryInjection"]): Promise<void> {
+async function injectMemory(
+  memory: NonNullable<CycleOptions["memoryEngine"]> | WorkflowContext["memory"],
+  pieces: RunOptions["memoryInjection"],
+): Promise<void> {
   if (!pieces) {
     return;
   }
 
   for (const piece of pieces) {
-    await memory.put(piece);
+    await memory.write(piece);
   }
 }
 
 class DefaultCycle implements Cycle {
   private readonly workflows = new Map<string, WorkflowDefinition>();
   private readonly aiProvider: AIProvider;
-  private readonly memoryStore: MemoryStore;
+  private readonly memoryEngine: NonNullable<CycleOptions["memoryEngine"]>;
   private readonly artifactStore: ArtifactStore;
   private readonly broadcaster: ExecutionBroadcaster;
   private readonly now: () => number;
@@ -134,11 +162,22 @@ class DefaultCycle implements Cycle {
 
   constructor(options: CycleOptions = {}) {
     this.aiProvider = options.aiProvider ?? createUnavailableAIProvider();
-    this.memoryStore = options.memoryStore ?? new InMemoryMemoryStore();
+    this.memoryEngine =
+      options.memoryEngine ??
+      new InMemoryMemoryEngine({
+        kvStore: options.kvStore ?? new InMemoryKVStore(),
+        vectorStore: options.vectorStore ?? new InMemoryVectorStore(),
+        graphStore: options.graphStore ?? new InMemoryGraphStore(),
+        ...(options.embeddingProvider ? { embeddingProvider: options.embeddingProvider } : {}),
+        ...(options.maxMemoryContextTokens
+          ? { maxContextTokens: options.maxMemoryContextTokens }
+          : {})
+      });
     this.artifactStore = options.artifactStore ?? new InMemoryArtifactStore();
     this.broadcaster = new ExecutionBroadcaster(options.observers ?? []);
     this.now = options.now ?? (() => Date.now());
-    this.llmModelId = options.llmModelId ?? this.aiProvider.defaultChatModel ?? "foundation-llm";
+    this.llmModelId =
+      options.llmModelId ?? this.aiProvider.defaultChatModel ?? "foundation-llm";
     this.embeddingModelId = options.embeddingModelId ?? "foundation-embedding";
   }
 
@@ -146,7 +185,11 @@ class DefaultCycle implements Cycle {
     this.workflows.set(key, workflow);
   }
 
-  async run(key: string, input: unknown, options: RunOptions = {}): Promise<{ frame: ExecutionFrame }> {
+  async run(
+    key: string,
+    input: unknown,
+    options: RunOptions = {},
+  ): Promise<{ frame: ExecutionFrame }> {
     const workflow = this.workflows.get(key);
     if (!workflow) {
       throw new Error(`Workflow "${key}" is not registered.`);
@@ -163,8 +206,8 @@ class DefaultCycle implements Cycle {
     const workflowId = `${workflow.name}-${randomUUID().slice(0, 8)}`;
     const runId = `run_${randomUUID().slice(0, 8)}`;
     const frame = createFrame(workflowId, runId, workflow.start, this.now());
-    const memory = createObservedMemoryStore({
-      store: this.memoryStore,
+    const memory = createObservedMemoryEngine({
+      engine: this.memoryEngine,
       broadcaster: runBroadcaster,
       workflowId,
       runId,
@@ -178,7 +221,7 @@ class DefaultCycle implements Cycle {
       now: this.now
     });
 
-    await injectRag(workflowId, memory, this.now(), options.rag);
+    await injectRag(workflowId, runId, memory, this.now(), options.rag);
     await injectMemory(memory, options.memoryInjection);
 
     await runBroadcaster.emit({
@@ -196,7 +239,9 @@ class DefaultCycle implements Cycle {
       while (frame.currentState !== endState) {
         const task = workflow.tasks[frame.currentState];
         if (!task) {
-          throw new Error(`Task "${frame.currentState}" is not defined in workflow "${workflow.name}".`);
+          throw new Error(
+            `Task "${frame.currentState}" is not defined in workflow "${workflow.name}".`,
+          );
         }
 
         await runBroadcaster.emit({
@@ -224,6 +269,17 @@ class DefaultCycle implements Cycle {
           taskName: task.name,
           now: this.now
         });
+        const memoryContext = await memory.beforeStep({
+          workflowId,
+          runId,
+          currentStep: frame.currentState,
+          taskName: task.name,
+          taskType: task.memoryTaskType,
+          phase: task.memoryPhase,
+          input,
+          now: this.now()
+        });
+
         const context: WorkflowContext = {
           workflowId,
           runId,
@@ -231,6 +287,7 @@ class DefaultCycle implements Cycle {
           session: createSession(this.llmModelId, this.embeddingModelId),
           ai: this.aiProvider,
           memory,
+          memoryContext,
           artifacts,
           log,
           now: this.now
@@ -257,6 +314,18 @@ class DefaultCycle implements Cycle {
           await task.after(context, result);
         }
 
+        await memory.afterStep({
+          workflowId,
+          runId,
+          currentStep: frame.currentState,
+          taskName: task.name,
+          taskType: task.memoryTaskType,
+          phase: task.memoryPhase,
+          input,
+          result,
+          now: this.now()
+        });
+
         frame.taskResults[task.name] = result;
         frame.updatedAt = this.now();
         frame.checkpointSeq += 1;
@@ -273,15 +342,12 @@ class DefaultCycle implements Cycle {
             runId,
             taskName: task.name,
             summary: errorMessage,
-            status: result.status
-            ,
+            status: result.status,
             meta: {
               errorMessage,
               ...(result.error?.code ? { errorCode: result.error.code } : {}),
               ...(result.error?.details !== undefined
-                ? {
-                    errorDetails: result.error.details
-                  }
+                ? { errorDetails: result.error.details }
                 : {})
             }
           });
@@ -311,7 +377,7 @@ class DefaultCycle implements Cycle {
         }
 
         const next = ensureSequentialOnly(
-          resolveTransition(workflow.transitions[frame.currentState], result.status)
+          resolveTransition(workflow.transitions[frame.currentState], result.status),
         );
         frame.currentState = next ?? endState;
 
@@ -320,6 +386,7 @@ class DefaultCycle implements Cycle {
         }
       }
 
+      await memory.runLifecycle(this.now());
       frame.status = finalStatus;
 
       if (finalStatus === "fail") {

@@ -19,7 +19,7 @@ export type TimelineRow = {
   id: string;
   timestamp: number;
   level: TaskLogLevel;
-  source: "task" | "debug";
+  source: "task" | "debug" | "memory";
   text: string;
   taskName?: string;
 };
@@ -231,7 +231,8 @@ export function reduceExecutionEvent(
   state: RendererState,
   event: ExecutionEvent,
   maxRecentEvents: number,
-  maxHistoryRows: number
+  maxHistoryRows: number,
+  maxTimelineRows = 480
 ): void {
   state.workflowId = event.workflowId;
   state.runId = event.runId;
@@ -283,8 +284,19 @@ export function reduceExecutionEvent(
       state.retryCount += 1;
       pushTaskHistory(state, event, maxHistoryRows);
       break;
-    case "memory.put":
+    case "memory.before_step":
+    case "memory.after_step":
+    case "retrieval.performed":
+    case "memory.write":
+    case "memory.merge":
+    case "memory.archive":
+    case "memory.expire":
       state.memoryWrites += 1;
+      pushMemoryTimelineEvent(state, event, maxTimelineRows);
+      break;
+    case "memory.compress":
+      state.memoryWrites += 1;
+      pushMemoryTimelineEvent(state, event, maxTimelineRows);
       break;
     case "artifact.created":
       state.artifactCount += 1;
@@ -337,6 +349,33 @@ function clipUrl(url: string | undefined, maxWidth = 36): string {
   }
 }
 
+function stringifyMetaValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stringifyMetaValue(entry))
+      .filter(Boolean)
+      .join(",");
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function buildDebugTimelineText(payload: Record<string, unknown>, timestamp: number): string {
   const phase = typeof payload.phase === "string" ? payload.phase : "debug";
   const badge =
@@ -350,6 +389,81 @@ export function buildDebugTimelineText(payload: Record<string, unknown>, timesta
   const error = typeof payload.error === "string" ? ` ${payload.error}` : "";
 
   return `${formatClock(timestamp)} [${badge}] ${provider} ${method} ${clipUrl(url)}${status}${durationMs}${requestId}${error}`.trim();
+}
+
+export function buildMemoryTimelineText(event: ExecutionEvent): string {
+  const prefix = `${formatClock(event.timestamp)} [MEM]`;
+
+  switch (event.type) {
+    case "memory.before_step": {
+      const taskName = typeof event.meta?.taskName === "string" ? event.meta.taskName : "-";
+      const taskType = typeof event.meta?.taskType === "string" ? event.meta.taskType : "-";
+      const phase = typeof event.meta?.phase === "string" ? event.meta.phase : "-";
+      const shards = stringifyMetaValue(event.meta?.routedShards) || "-";
+      const usedTokens = typeof event.meta?.usedTokens === "number" ? event.meta.usedTokens : "-";
+      return `${prefix} before ${taskName} type=${taskType} phase=${phase} shards=${shards} tokens=${usedTokens}`;
+    }
+    case "retrieval.performed": {
+      const shards = stringifyMetaValue(event.meta?.routedShards) || "-";
+      const hitCount = typeof event.meta?.hitCount === "number" ? event.meta.hitCount : "-";
+      const usedTokens = typeof event.meta?.usedTokens === "number" ? event.meta.usedTokens : "-";
+      return `${prefix} retrieve shards=${shards} hits=${hitCount} tokens=${usedTokens}`;
+    }
+    case "memory.after_step": {
+      const taskName = typeof event.meta?.taskName === "string" ? event.meta.taskName : "-";
+      const taskRecordAction =
+        typeof event.meta?.taskRecordAction === "string" ? event.meta.taskRecordAction : "-";
+      const workflowRecordAction =
+        typeof event.meta?.workflowRecordAction === "string"
+          ? event.meta.workflowRecordAction
+          : "-";
+      const compressedIds = stringifyMetaValue(event.meta?.compressedIds) || "-";
+      return `${prefix} after ${taskName} task=${taskRecordAction} workflow=${workflowRecordAction} compressed=${compressedIds}`;
+    }
+    case "memory.write":
+    case "memory.merge":
+    case "memory.compress":
+    case "memory.archive":
+    case "memory.expire": {
+      const recordId = typeof event.meta?.recordId === "string" ? event.meta.recordId : "";
+      const targetId =
+        typeof event.meta?.targetId === "string" ? ` target=${event.meta.targetId}` : "";
+      const reason = typeof event.meta?.reason === "string" ? ` ${event.meta.reason}` : "";
+      const ids = [
+        stringifyMetaValue(event.meta?.archivedIds),
+        stringifyMetaValue(event.meta?.expiredIds),
+        stringifyMetaValue(event.meta?.deletedIds),
+        stringifyMetaValue(event.meta?.compressedIds),
+      ]
+        .filter(Boolean)
+        .join("|");
+      return `${prefix} ${event.type.replace("memory.", "")} ${recordId}${targetId}${
+        ids ? ` ids=${ids}` : ""
+      }${reason}`.trim();
+    }
+    default:
+      return `${prefix} ${event.summary}`;
+  }
+}
+
+export function pushMemoryTimelineEvent(
+  state: RendererState,
+  event: ExecutionEvent,
+  maxTimelineRows: number
+): void {
+  const taskName =
+    "taskName" in event && typeof event.taskName === "string"
+      ? event.taskName
+      : undefined;
+  state.timeline.push({
+    id: `memory:${event.type}:${event.timestamp}:${state.timeline.length}`,
+    timestamp: event.timestamp,
+    level: event.type === "memory.expire" ? "warn" : "info",
+    source: "memory",
+    ...(taskName !== undefined ? { taskName } : {}),
+    text: buildMemoryTimelineText(event)
+  });
+  state.timeline = state.timeline.slice(-maxTimelineRows);
 }
 
 export function pushDebugLogLine(

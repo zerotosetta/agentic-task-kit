@@ -10,76 +10,242 @@ export type TaskResult<T = unknown> = {
   };
 };
 
-export type JoinPolicy =
-  | { type: "all" }
-  | { type: "any" }
-  | { type: "quorum"; successCount: number }
-  | {
-      type: "custom";
-      decide: (args: {
-        results: Record<string, TaskResult>;
-        ctx: WorkflowContext;
-      }) => boolean;
-    };
+export type MemoryShard = "user" | "task" | "workflow" | "system" | "knowledge";
 
-export type ParallelTransition = {
-  parallel: string[];
-  join: string;
-  joinPolicy?: JoinPolicy;
-  branchId?: string;
+export type MemoryKind = "raw" | "summary";
+
+export type MemoryPhase = "PLANNING" | "EXECUTION" | "REFLECTION" | "RECOVERY";
+
+export type MemoryTaskType = "user" | "workflow" | "debug" | "default";
+
+export type StepExecutionLog = {
+  stepName: string;
+  status: TaskStatus;
+  startedAt: number;
+  endedAt?: number;
+  summary?: string;
+  error?: string;
 };
 
-export type Transition =
-  | string
-  | {
-      [status in TaskStatus]?: string | ParallelTransition;
-    };
+export type UserMemory = {
+  userId: string;
+  preferences: string[];
+  behaviorPatterns: string[];
+  lastUpdated: number;
+};
 
-export type MemoryScope = "task" | "workflow" | "episodic" | "semantic";
+export type TaskMemory = {
+  taskId: string;
+  status: "pending" | "running" | "done" | "failed";
+  input: unknown;
+  output: unknown;
+  errors: string[];
+  updatedAt: number;
+};
 
-export type MemoryCategory =
-  | "fact"
-  | "decision"
-  | "summary"
-  | "error"
-  | "artifact"
-  | "context";
+export type WorkflowMemory = {
+  workflowId: string;
+  currentStep: string;
+  history: StepExecutionLog[];
+  contextSummary: string;
+};
 
-export type MemoryPiece = {
-  key: string;
-  scope: MemoryScope;
-  category: MemoryCategory;
+export type SystemMemory = {
+  policies: string[];
+  constraints: string[];
+};
+
+export type KnowledgeMemory = {
+  id: string;
+  content: string;
+  embedding: number[];
+  tags: string[];
+};
+
+export type MemoryPayload =
+  | UserMemory
+  | TaskMemory
+  | WorkflowMemory
+  | SystemMemory
+  | KnowledgeMemory;
+
+export type MemoryRecord = {
+  id: string;
+  shard: MemoryShard;
+  kind: MemoryKind;
+  payload: MemoryPayload;
   description: string;
   keywords: string[];
-  value: unknown;
-  embedding?: number[];
-  embeddingModelId?: string;
   importance: number;
   createdAt: number;
   updatedAt: number;
-  ttlMs?: number;
+  lastAccessedAt: number;
+  embedding?: number[];
+  embeddingModelId?: string;
+  workflowId?: string;
+  runId?: string;
   sourceTask?: string;
-  hash?: string;
+  phase?: MemoryPhase;
+  taskType?: MemoryTaskType;
+  supersedes?: string[];
+  archivedAt?: number;
+};
+
+export type MemoryRecordInput = {
+  id?: string;
+  shard: MemoryShard;
+  kind: MemoryKind;
+  payload: MemoryPayload;
+  description: string;
+  keywords?: string[];
+  importance?: number;
+  embedding?: number[];
+  embeddingModelId?: string;
+  workflowId?: string;
+  runId?: string;
+  sourceTask?: string;
+  phase?: MemoryPhase;
+  taskType?: MemoryTaskType;
   supersedes?: string[];
 };
 
-export type HybridSearchParams = {
-  topK: number;
-  candidateKKeyword: number;
-  candidateKVector: number;
-  alpha: number;
-  beta: number;
-  recencyGamma?: number;
-  importanceDelta?: number;
-  fusion?: "weighted_sum" | "rrf";
+export type RetrieveRequest = {
+  query: string;
+  taskType: MemoryTaskType;
+  phase: MemoryPhase;
+  topK?: number;
+  maxContextTokens?: number;
 };
 
-export type HybridSearchHit = {
-  piece: MemoryPiece;
-  keywordScore?: number;
-  vectorScore?: number;
+export type RetrieveHit = {
+  record: MemoryRecord;
+  semanticScore: number;
+  keywordScore: number;
+  recencyScore: number;
+  importanceScore: number;
   finalScore: number;
 };
+
+export type RetrieveResult = {
+  query: string;
+  normalizedQuery: string;
+  routedShards: MemoryShard[];
+  hits: RetrieveHit[];
+  assembledContext: string;
+  usedTokens: number;
+  maxTokens: number;
+};
+
+export type StepMemoryContext = RetrieveResult & {
+  currentStep: string;
+  taskName: string;
+  phase: MemoryPhase;
+  taskType: MemoryTaskType;
+};
+
+export type WriteDispositionAction =
+  | "discard"
+  | "create"
+  | "overwrite"
+  | "merge"
+  | "compress"
+  | "archive"
+  | "delete";
+
+export type WriteDisposition = {
+  action: WriteDispositionAction;
+  recordId?: string;
+  targetId?: string;
+  reason: string;
+  importance: number;
+};
+
+export type MemoryWriteReport = {
+  taskRecord: WriteDisposition;
+  workflowRecord: WriteDisposition;
+  compressedIds: string[];
+  discardedIds: string[];
+};
+
+export type LifecycleReport = {
+  archivedIds: string[];
+  deletedIds: string[];
+  compressedIds: string[];
+  expiredIds: string[];
+};
+
+export type BeforeStepInput = {
+  workflowId: string;
+  runId: string;
+  currentStep: string;
+  taskName: string;
+  taskType: MemoryTaskType;
+  phase: MemoryPhase;
+  input: unknown;
+  now: number;
+};
+
+export type AfterStepInput = BeforeStepInput & {
+  result: TaskResult;
+};
+
+export interface KVStore {
+  put(record: MemoryRecord): Promise<void>;
+  get(id: string): Promise<MemoryRecord | null>;
+  delete(id: string): Promise<void>;
+  archive(id: string, archivedAt: number): Promise<MemoryRecord | null>;
+  list(args?: {
+    shard?: MemoryShard;
+    kind?: MemoryKind;
+    archived?: boolean;
+  }): Promise<MemoryRecord[]>;
+}
+
+export interface VectorStore {
+  upsert(args: { id: string; embedding: number[]; archived?: boolean }): Promise<void>;
+  delete(id: string, archived?: boolean): Promise<void>;
+  search(args: {
+    embedding: number[];
+    topK: number;
+    ids?: string[];
+    archived?: boolean;
+  }): Promise<Array<{ id: string; score: number }>>;
+}
+
+export interface GraphStore {
+  addEdge(args: {
+    from: string;
+    to: string;
+    relation: "supersedes" | "merged-into" | "compressed-into" | "archived-from" | "workflow-step";
+    meta?: Record<string, unknown>;
+  }): Promise<void>;
+  listEdges(id: string): Promise<
+    Array<{
+      from: string;
+      to: string;
+      relation: string;
+      meta?: Record<string, unknown>;
+    }>
+  >;
+}
+
+export interface EmbeddingProvider {
+  embed(text: string): Promise<{ embedding: number[]; modelId: string }>;
+}
+
+export interface MemoryEngine {
+  beforeStep(input: BeforeStepInput): Promise<StepMemoryContext>;
+  afterStep(input: AfterStepInput): Promise<MemoryWriteReport>;
+  write(record: MemoryRecordInput): Promise<WriteDisposition>;
+  get(id: string): Promise<MemoryRecord | null>;
+  retrieve(request: RetrieveRequest): Promise<RetrieveResult>;
+  runLifecycle(now?: number): Promise<LifecycleReport>;
+  list(args?: {
+    shard?: MemoryShard;
+    kind?: MemoryKind;
+    archived?: boolean;
+  }): Promise<MemoryRecord[]>;
+}
 
 export type Artifact = {
   artifactId: string;
@@ -175,6 +341,31 @@ export interface AIProvider {
   chatStream(request: AIChatRequest): Promise<AIChatStream>;
 }
 
+export type JoinPolicy =
+  | { type: "all" }
+  | { type: "any" }
+  | { type: "quorum"; successCount: number }
+  | {
+      type: "custom";
+      decide: (args: {
+        results: Record<string, TaskResult>;
+        ctx: WorkflowContext;
+      }) => boolean;
+    };
+
+export type ParallelTransition = {
+  parallel: string[];
+  join: string;
+  joinPolicy?: JoinPolicy;
+  branchId?: string;
+};
+
+export type Transition =
+  | string
+  | {
+      [status in TaskStatus]?: string | ParallelTransition;
+    };
+
 export type TaskLogLevel = "debug" | "info" | "warn" | "error" | "success";
 
 export type TaskLogEvent = {
@@ -216,7 +407,12 @@ export type ExecutionEvent =
       meta?: Record<string, unknown>;
     }
   | {
-      type: "task.queued" | "task.started" | "task.completed" | "task.failed" | "task.retry_scheduled";
+      type:
+        | "task.queued"
+        | "task.started"
+        | "task.completed"
+        | "task.failed"
+        | "task.retry_scheduled";
       timestamp: number;
       workflowId: string;
       runId: string;
@@ -236,7 +432,17 @@ export type ExecutionEvent =
       meta?: Record<string, unknown>;
     }
   | {
-      type: "memory.put" | "memory.delete" | "retrieval.performed" | "artifact.created" | "task.log";
+      type:
+        | "memory.before_step"
+        | "memory.after_step"
+        | "memory.write"
+        | "memory.merge"
+        | "memory.compress"
+        | "memory.expire"
+        | "memory.archive"
+        | "retrieval.performed"
+        | "artifact.created"
+        | "task.log";
       timestamp: number;
       workflowId: string;
       runId: string;
@@ -283,14 +489,6 @@ export interface CLIRenderer extends ExecutionObserver {
   resize?(width: number, height: number): void;
 }
 
-export interface MemoryStore {
-  put(piece: MemoryPiece): Promise<void>;
-  get(key: string): Promise<MemoryPiece | null>;
-  delete(key: string): Promise<void>;
-  hybridSearch(query: string, params: HybridSearchParams): Promise<HybridSearchHit[]>;
-  listByScope(scope: MemoryScope): Promise<MemoryPiece[]>;
-}
-
 export interface ArtifactStore {
   create(args: {
     name: string;
@@ -304,6 +502,8 @@ export interface ArtifactStore {
 
 export interface TaskLike {
   name: string;
+  memoryPhase: MemoryPhase;
+  memoryTaskType: MemoryTaskType;
   before?(ctx: WorkflowContext): Promise<void>;
   run(ctx: WorkflowContext): Promise<TaskResult>;
   after?(ctx: WorkflowContext, result: TaskResult): Promise<void>;
@@ -339,7 +539,8 @@ export interface WorkflowContext {
   input: unknown;
   session: AISession;
   ai: AIProvider;
-  memory: MemoryStore;
+  memory: MemoryEngine;
+  memoryContext?: StepMemoryContext;
   artifacts: ArtifactStore;
   log: TaskLogger;
   now: () => number;
@@ -347,28 +548,29 @@ export interface WorkflowContext {
 
 export type RunOptions = {
   rag?: Array<{ id?: string; text: string; meta?: Record<string, unknown> }>;
-  memoryInjection?: MemoryPiece[];
+  memoryInjection?: MemoryRecordInput[];
   durable?: boolean;
   observers?: ExecutionObserver[];
 };
 
 export interface Cycle {
   register(key: string, workflow: WorkflowDefinition): void;
-  run(
-    key: string,
-    input: unknown,
-    options?: RunOptions
-  ): Promise<{ frame: ExecutionFrame }>;
+  run(key: string, input: unknown, options?: RunOptions): Promise<{ frame: ExecutionFrame }>;
 }
 
 export type CycleOptions = {
   aiProvider?: AIProvider;
-  memoryStore?: MemoryStore;
+  memoryEngine?: MemoryEngine;
   artifactStore?: ArtifactStore;
   observers?: ExecutionObserver[];
   now?: () => number;
   llmModelId?: string;
   embeddingModelId?: string;
+  kvStore?: KVStore;
+  vectorStore?: VectorStore;
+  graphStore?: GraphStore;
+  embeddingProvider?: EmbeddingProvider;
+  maxMemoryContextTokens?: number;
 };
 
 export type OpenAICompatibleChatProviderOptions = {

@@ -2,13 +2,14 @@ import {
   createCLIRenderer,
   createCycle,
   InMemoryArtifactStore,
-  InMemoryMemoryStore,
+  InMemoryMemoryEngine,
   Task,
   type CLIRendererOptions,
-  type MemoryPiece,
   type TaskResult,
+  type UserMemory,
   type WorkflowContext,
-  type WorkflowDefinition
+  type WorkflowDefinition,
+  type WorkflowMemory
 } from "../src/index.js";
 
 type BriefingInput = {
@@ -38,6 +39,8 @@ function resolveRendererOptions(): CLIRendererOptions {
 
 class CaptureRequestTask extends Task {
   name = "captureRequest";
+  memoryPhase = "PLANNING" as const;
+  memoryTaskType = "user" as const;
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     const input = ctx.input as BriefingInput;
@@ -46,26 +49,31 @@ class CaptureRequestTask extends Task {
       priority: input.priority
     });
 
-    const requestPiece: MemoryPiece = {
-      key: `workflow.${ctx.workflowId}.request`,
-      scope: "workflow",
-      category: "context",
-      description: "Incoming customer request for the workflow",
-      keywords: ["customer", "request", input.priority],
-      value: input,
+    await ctx.memory.write({
+      id: `memory.user.summary.${input.customerName}`,
+      shard: "user",
+      kind: "summary",
+      payload: {
+        userId: input.customerName,
+        preferences: [...input.constraints],
+        behaviorPatterns: [input.priority, input.request],
+        lastUpdated: ctx.now()
+      } satisfies UserMemory,
+      description: "Customer preferences captured for briefing workflow",
+      keywords: ["customer", "request", input.priority, "briefing"],
       importance: 0.9,
-      createdAt: ctx.now(),
-      updatedAt: ctx.now(),
-      sourceTask: this.name
-    };
-
-    await ctx.memory.put(requestPiece);
+      workflowId: ctx.workflowId,
+      runId: ctx.runId,
+      sourceTask: this.name,
+      phase: this.memoryPhase,
+      taskType: this.memoryTaskType
+    });
     ctx.log.success("Stored request context in memory");
 
     return {
       status: "success",
       output: {
-        requestKey: requestPiece.key
+        requestKey: `memory.user.summary.${input.customerName}`
       }
     };
   }
@@ -73,11 +81,14 @@ class CaptureRequestTask extends Task {
 
 class DraftPlanTask extends Task {
   name = "draftPlan";
+  memoryPhase = "EXECUTION" as const;
+  memoryTaskType = "workflow" as const;
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     ctx.log.info("Drafting action plan");
-    const requestPiece = await ctx.memory.get(`workflow.${ctx.workflowId}.request`);
-    const request = requestPiece?.value as BriefingInput | undefined;
+    const input = ctx.input as BriefingInput;
+    const requestRecord = await ctx.memory.get(`memory.user.summary.${input.customerName}`);
+    const request = requestRecord?.payload as UserMemory | undefined;
 
     if (!request) {
       return {
@@ -89,12 +100,32 @@ class DraftPlanTask extends Task {
     }
 
     const actionPlan = [
-      `Restate the request from ${request.customerName}.`,
-      `Respect constraints: ${request.constraints.join(", ") || "none"}.`,
-      request.priority === "high"
+      `Restate the request from ${request.userId}.`,
+      `Respect constraints: ${request.preferences.join(", ") || "none"}.`,
+      request.behaviorPatterns.includes("high")
         ? "Escalate the plan for same-day review."
         : "Queue the plan for normal review."
     ];
+
+    await ctx.memory.write({
+      id: `memory.workflow.summary.${ctx.workflowId}.briefing`,
+      shard: "workflow",
+      kind: "summary",
+      payload: {
+        workflowId: ctx.workflowId,
+        currentStep: this.name,
+        history: [],
+        contextSummary: actionPlan.join(" ")
+      } satisfies WorkflowMemory,
+      description: "Workflow briefing summary",
+      keywords: ["workflow", "briefing", "plan"],
+      importance: 0.88,
+      workflowId: ctx.workflowId,
+      runId: ctx.runId,
+      sourceTask: this.name,
+      phase: this.memoryPhase,
+      taskType: this.memoryTaskType
+    });
 
     const artifact = await ctx.artifacts.create({
       name: "briefing-plan.json",
@@ -103,10 +134,10 @@ class DraftPlanTask extends Task {
         JSON.stringify(
           {
             workflowId: ctx.workflowId,
-            customerName: request.customerName,
-            request: request.request,
-            priority: request.priority,
-            actionPlan
+            customerName: request.userId,
+            priority: input.priority,
+            actionPlan,
+            assembledContext: ctx.memoryContext?.assembledContext ?? ""
           },
           null,
           2
@@ -115,23 +146,6 @@ class DraftPlanTask extends Task {
       meta: {
         task: this.name
       }
-    });
-
-    await ctx.memory.put({
-      key: `artifact.${artifact.artifactId}.briefing`,
-      scope: "workflow",
-      category: "artifact",
-      description: "Artifact metadata for generated briefing plan",
-      keywords: ["artifact", "briefing", "plan"],
-      value: {
-        artifactId: artifact.artifactId,
-        name: artifact.name,
-        uri: artifact.uri
-      },
-      importance: 0.8,
-      createdAt: ctx.now(),
-      updatedAt: ctx.now(),
-      sourceTask: this.name
     });
 
     ctx.log.success("Created briefing plan artifact", {
@@ -169,11 +183,11 @@ const ConsumerWorkflow: WorkflowDefinition = {
   }
 };
 
-const memoryStore = new InMemoryMemoryStore();
+const memoryEngine = new InMemoryMemoryEngine();
 const artifactStore = new InMemoryArtifactStore();
 const renderer = createCLIRenderer(resolveRendererOptions());
 const cycle = createCycle({
-  memoryStore,
+  memoryEngine,
   artifactStore,
   observers: [renderer]
 });

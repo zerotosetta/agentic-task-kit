@@ -27,7 +27,7 @@ function createInkState(): RendererState {
     workflowId: "java-modernization",
     runId: "run_ink",
     summary: "java modernization start=analyze"
-  }, 10, 32);
+  }, 10, 32, 64);
 
   for (let index = 1; index <= 6; index += 1) {
     reduceExecutionEvent(state, {
@@ -37,8 +37,31 @@ function createInkState(): RendererState {
       runId: "run_ink",
       taskName: `task-${index}`,
       summary: `history-item-${index}`
-    }, 10, 32);
+    }, 10, 32, 64);
   }
+
+  reduceExecutionEvent(state, {
+    type: "retrieval.performed",
+    timestamp: Date.UTC(2026, 2, 29, 9, 1, 58),
+    workflowId: "java-modernization",
+    runId: "run_ink",
+    summary: "retrieve workflow",
+    meta: {
+      routedShards: ["workflow", "task"],
+      hitCount: 2,
+      usedTokens: 48
+    }
+  }, 10, 32, 64);
+  reduceExecutionEvent(state, {
+    type: "memory.compress",
+    timestamp: Date.UTC(2026, 2, 29, 9, 1, 59),
+    workflowId: "java-modernization",
+    runId: "run_ink",
+    summary: "lifecycle compress",
+    meta: {
+      compressedIds: ["memory.task.summary.compressed.demo"]
+    }
+  }, 10, 32, 64);
 
   for (let index = 1; index <= 12; index += 1) {
     pushTaskLog(state, {
@@ -57,6 +80,28 @@ function createInkState(): RendererState {
     Date.UTC(2026, 2, 29, 9, 2, 0),
     64
   );
+  reduceExecutionEvent(state, {
+    type: "retrieval.performed",
+    timestamp: Date.UTC(2026, 2, 29, 9, 2, 1),
+    workflowId: "java-modernization",
+    runId: "run_ink",
+    summary: "retrieve workflow",
+    meta: {
+      routedShards: ["workflow", "task"],
+      hitCount: 2,
+      usedTokens: 48
+    }
+  }, 10, 32, 64);
+  reduceExecutionEvent(state, {
+    type: "memory.compress",
+    timestamp: Date.UTC(2026, 2, 29, 9, 2, 2),
+    workflowId: "java-modernization",
+    runId: "run_ink",
+    summary: "lifecycle compress",
+    meta: {
+      compressedIds: ["memory.task.summary.compressed.demo"]
+    }
+  }, 10, 32, 64);
 
   return state;
 }
@@ -79,9 +124,10 @@ describe("Ink renderer screen", () => {
 
       expect(frame).toContain("Cycle Ink");
       expect(frame).toContain("Workflow + History");
-      expect(frame).toContain("Logs (13)");
+      expect(frame).toContain("Logs (17)");
       expect(frame).toContain("focus=right");
       expect(frame).toContain("[REQ] gemini POST");
+      expect(frame).toContain("[MEM] retrieve");
       expect(frame).toContain("follow=on");
     } finally {
       instance.unmount();

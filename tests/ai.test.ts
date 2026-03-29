@@ -5,7 +5,7 @@ import {
   createCLIRenderer,
   createCycle,
   InMemoryArtifactStore,
-  InMemoryMemoryStore,
+  InMemoryMemoryEngine,
   OpenAISummaryWorkflow,
   type AIChatRequest,
   type AIChatResponse,
@@ -59,7 +59,7 @@ describe("AI provider integration", () => {
       }
     };
 
-    const memoryStore = new InMemoryMemoryStore();
+    const memoryEngine = new InMemoryMemoryEngine();
     const artifactStore = new InMemoryArtifactStore();
     const stream = new PassThrough();
     let output = "";
@@ -73,7 +73,7 @@ describe("AI provider integration", () => {
     });
     const cycle = createCycle({
       aiProvider,
-      memoryStore,
+      memoryEngine,
       artifactStore,
       observers: [renderer],
       now: (() => {
@@ -92,11 +92,11 @@ describe("AI provider integration", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.messages[0]?.role).toBe("developer");
 
-    const summary = await memoryStore.get(
-      `workflow.${result.frame.workflowId}.task.generateSummary.summary`
+    const summary = await memoryEngine.get(
+      `memory.workflow.summary.${result.frame.workflowId}.generateSummary`,
     );
-    expect((summary?.value as { summary?: string } | undefined)?.summary).toBe(
-      "Mocked AI summary for the current workflow run."
+    expect(summary && "contextSummary" in summary.payload ? summary.payload.contextSummary : undefined).toBe(
+      "Mocked AI summary for the current workflow run.",
     );
 
     const artifacts = await artifactStore.list();

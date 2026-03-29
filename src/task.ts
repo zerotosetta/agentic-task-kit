@@ -1,4 +1,6 @@
 import type {
+  MemoryPhase,
+  MemoryTaskType,
   TaskLike,
   TaskResult,
   WorkflowContext
@@ -6,6 +8,8 @@ import type {
 
 export abstract class Task implements TaskLike {
   abstract name: string;
+  abstract memoryPhase: MemoryPhase;
+  abstract memoryTaskType: MemoryTaskType;
 
   before?(ctx: WorkflowContext): Promise<void>;
 

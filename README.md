@@ -5,10 +5,15 @@ Cycle foundation MVP 를 구현하는 저장소입니다.
 
 ## 현재 포함 범위
 - sequential workflow engine
-- in-memory memory store
+- shard/kind 기반 in-memory memory engine
 - in-memory artifact store
 - execution event stream
 - `TaskLogger` / `ctx.log`
+- automatic `beforeStep` / `afterStep` memory hook
+- fixed shard: `user | task | workflow | system | knowledge`
+- fixed kind: `raw | summary`
+- hybrid retrieval (`semantic + keyword + recency + importance`)
+- lifecycle `Create -> Update -> Merge -> Compress -> Expire`
 - `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
 - OpenAI-compatible Chat Completions adapter
 - separate OpenAI-compatible config file loading
@@ -131,6 +136,12 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
+- AXPM-hosted memory demo workflow:
+```bash
+cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
+npm install
+npm run start:memory-demo:line
+```
 - AXPM-hosted Java modernization pipeline example:
 ```bash
 cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
@@ -155,6 +166,13 @@ const cycle = createCycle({
 ```
 
 `CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH`, `CYCLE_OPENAI_CONFIG_PATH`, `OPENAI_CONFIG_PATH` 로도 경로를 지정할 수 있습니다.
+
+## Memory Engine V2
+- `ctx.memory` 는 더 이상 단순 key/value `MemoryStore` 가 아니라 shard/hook/lifecycle 기반 `MemoryEngine` 이다.
+- 모든 task 는 `memoryPhase` 와 `memoryTaskType` 을 명시해야 하고, runtime 이 자동으로 `beforeStep()` retrieval 과 `afterStep()` write 를 호출한다.
+- 기본 구현은 `InMemoryMemoryEngine` + `InMemoryKVStore` + `InMemoryVectorStore` + `InMemoryGraphStore` 조합이다.
+- `RunOptions.memoryInjection` 은 `MemoryRecordInput[]` 를 받고, `rag` 문서는 `knowledge/raw` record 로 주입된다.
+- Ink TUI 우측 패널에는 task log, provider HTTP debug log 뿐 아니라 retrieval / write / compress / archive / expire 메모리 이벤트도 구조화되어 표시된다.
 
 ## OpenAI-compatible provider quick usage
 ```ts
