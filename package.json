@@ -1,0 +1,56 @@
+{
+  "name": "agentic-task-kit",
+  "version": "0.1.0",
+  "description": "Cycle foundation MVP for implementing AX Workflow in Node.js and TypeScript.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "build:bundle": "node ./scripts/build-package.mjs",
+    "build": "npm run clean && npm run build:types && npm run build:bundle",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "example": "tsx ./scripts/run-example.ts",
+    "example:consumer": "tsx ./scripts/run-consumer-example.ts",
+    "example:openai": "tsx ./scripts/run-openai-example.ts",
+    "example:openai:stream": "tsx ./scripts/run-openai-streaming-example.ts"
+  },
+  "keywords": [
+    "workflow",
+    "agent",
+    "cli",
+    "typescript",
+    "memory"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "esbuild": "^0.25.9",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  },
+  "dependencies": {
+    "ink": "^6.8.0",
+    "openai": "^6.33.0",
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1"
+  }
+}
