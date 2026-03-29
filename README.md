@@ -194,6 +194,7 @@ const cycle = createCycle({
 ```
 
 ## 문서
+- [memory guide](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/memory-guide.md)
 - [local setup](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/local-setup.md)
 - [runtime overview](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/runtime-overview.md)
 - [consumer example](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/consumer-example.md)
