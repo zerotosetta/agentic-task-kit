@@ -1,7 +1,7 @@
 # Local Setup
 
 ## Requirements
-- Node.js 22+
+- Node.js 20+
 - npm 10+
 
 ## Install
@@ -108,7 +108,8 @@ OPENAI_API_KEY=your_key_here npm run start:stream
 ## AXPM example project
 AXPM 저장소 안에서 구현 저장소를 외부 dependency 로 소비하는 Java 현대화 파이프라인 예제:
 ```bash
-cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
+git clone https://github.com/skyend/agentic-task-kit-axpm.git
+cd agentic-task-kit-axpm/example-project
 npm install
 npm run typecheck
 npm run start

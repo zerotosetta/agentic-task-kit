@@ -101,6 +101,33 @@ const provider = createOpenAICompatibleChatProvider({
 });
 ```
 
+HTTP error detail handling:
+
+```ts
+import {
+  AIProviderRequestError,
+  createOpenAICompatibleChatProvider
+} from "agentic-task-kit";
+
+const provider = createOpenAICompatibleChatProvider({
+  defaultModel: "gpt-5.2"
+});
+
+try {
+  await provider.chat({
+    messages: [{ role: "user", content: "Trigger an error." }]
+  });
+} catch (error) {
+  if (error instanceof AIProviderRequestError) {
+    console.error("status", error.status);
+    console.error("response", error.responseBody);
+    console.error("original", error.originalError);
+  }
+
+  throw error;
+}
+```
+
 ## 지원 설정
 - `providerName`
 - `apiKey`
@@ -115,6 +142,11 @@ const provider = createOpenAICompatibleChatProvider({
 - `defaultTemperature`
 - `defaultMaxCompletionTokens`
 - `defaultReasoningEffort`
+
+HTTP 실패 시:
+- throw 되는 error 는 `AIProviderRequestError`
+- `status`, `responseBody`, `requestId`, `code`, `type`, `param`, `originalError` 를 읽을 수 있음
+- `message` 에 status 와 response body 요약이 포함됨
 
 ## 환경 변수
 - `OPENAI_API_KEY`

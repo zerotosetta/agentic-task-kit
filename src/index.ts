@@ -1,5 +1,6 @@
 export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
+export { AIProviderRequestError } from "./errors.js";
 export { ExecutionBroadcaster } from "./events.js";
 export { createTaskLogger } from "./logging.js";
 export {
@@ -38,6 +39,7 @@ export type {
   AIHTTPRequestOptions,
   AIHTTPHeaders,
   AIProvider,
+  AIProviderRequestErrorDetails,
   AIReasoningEffort,
   AIChatMessageRole,
   AISession,

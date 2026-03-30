@@ -43,8 +43,8 @@ const retrievedContext = ctx.memoryContext?.assembledContext ?? "none";
 ```
 
 관련 구현:
-- [cycle.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/src/cycle.ts)
-- [memory.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/src/memory.ts)
+- [cycle.ts](../src/cycle.ts)
+- [memory.ts](../src/memory.ts)
 
 ## AI 질의 연결 방식
 조회 자체는 자동이지만, 조회된 context 를 `ctx.ai.chat()` 또는 `ctx.ai.chatStream()` 요청에 붙이는 것은 task 코드가 직접 한다.
@@ -68,8 +68,8 @@ const completion = await ctx.ai.chat({
 ```
 
 예시:
-- [openai-summary-workflow.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/src/examples/openai-summary-workflow.ts)
-- [openai-streaming-summary-workflow.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/src/examples/openai-streaming-summary-workflow.ts)
+- [openai-summary-workflow.ts](../src/examples/openai-summary-workflow.ts)
+- [openai-streaming-summary-workflow.ts](../src/examples/openai-streaming-summary-workflow.ts)
 
 정리:
 - 자동 수행: 조회와 `ctx.memoryContext` 주입
@@ -87,7 +87,7 @@ const retrieved = await ctx.memory.retrieve({
 ```
 
 예시:
-- [report-workflow.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/src/examples/report-workflow.ts)
+- [report-workflow.ts](../src/examples/report-workflow.ts)
 
 언제 쓰는가:
 - 기본 `beforeStep()` 결과와 별개로 더 구체적인 query 가 필요할 때
@@ -193,7 +193,7 @@ await cycle.run("hook-workflow", input, {
 - `rag` 는 runtime 이 자동으로 `knowledge/raw` record 로 변환한다.
 
 예시:
-- [cycle.test.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/tests/cycle.test.ts)
+- [cycle.test.ts](../tests/cycle.test.ts)
 
 ## lifecycle
 Memory Engine 은 아래 lifecycle 을 적용한다.
@@ -211,8 +211,8 @@ Create -> Update -> Merge -> Compress -> Expire
 - importance `< 0.3` 이면 delete
 
 검증 예시:
-- [memory.test.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/tests/memory.test.ts)
-- [memory-demo-workflow.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project/src/memory-demo-workflow.ts)
+- [memory.test.ts](../tests/memory.test.ts)
+- [memory-demo-workflow.ts](https://github.com/skyend/agentic-task-kit-axpm/blob/main/example-project/src/memory-demo-workflow.ts)
 
 ## Ink 에서 보는 방법
 `CYCLE_RENDER_MODE=ink` 로 실행하면 우측 패널에서 아래 메모리 이벤트를 볼 수 있다.
@@ -234,7 +234,8 @@ CYCLE_RENDER_MODE=ink npm run example
 AXPM demo:
 
 ```bash
-cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
+git clone https://github.com/skyend/agentic-task-kit-axpm.git
+cd agentic-task-kit-axpm/example-project
 npm run start:memory-demo:ink
 ```
 

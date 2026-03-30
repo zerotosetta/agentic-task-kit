@@ -310,6 +310,18 @@ export type AIChatUsage = {
   reasoningTokens?: number;
 };
 
+export type AIProviderRequestErrorDetails = {
+  provider: string;
+  model?: string;
+  status?: number;
+  requestId?: string | null;
+  code?: string | null;
+  type?: string;
+  param?: string | null;
+  responseBody?: unknown;
+  originalError: unknown;
+};
+
 export type AIChatResponse = {
   provider: string;
   model: string;

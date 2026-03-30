@@ -4,8 +4,8 @@
 OpenAI-compatible config file, default headers, non-stream workflow, streaming workflow 를 각각 별도 진입점으로 보여준다.
 
 ## 구조
-- 설정 파일: [cycle.config.json](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/sample-project/cycle.config.json)
-- 진입점: [main.ts](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/sample-project/src/main.ts)
+- 설정 파일: [cycle.config.json](./cycle.config.json)
+- 진입점: [main.ts](./src/main.ts)
 
 ## 설치
 ```bash

@@ -3,6 +3,11 @@
 Cycle foundation MVP 를 구현하는 저장소입니다.
 이 패키지는 AX Workflow 를 구현할 수 있는 Node.js + TypeScript 라이브러리의 최소 실행 가능 범위를 제공합니다.
 
+## Install
+```bash
+npm install agentic-task-kit
+```
+
 ## 현재 포함 범위
 - sequential workflow engine
 - shard/kind 기반 in-memory memory engine
@@ -138,13 +143,15 @@ OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
 - AXPM-hosted memory demo workflow:
 ```bash
-cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
+git clone https://github.com/skyend/agentic-task-kit-axpm.git
+cd agentic-task-kit-axpm/example-project
 npm install
 npm run start:memory-demo:line
 ```
 - AXPM-hosted Java modernization pipeline example:
 ```bash
-cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project
+git clone https://github.com/skyend/agentic-task-kit-axpm.git
+cd agentic-task-kit-axpm/example-project
 npm install
 npm run start
 ```
@@ -193,11 +200,23 @@ const cycle = createCycle({
 });
 ```
 
+HTTP 실패 시에는 `AIProviderRequestError` 가 throw 되고, `status`, `responseBody`, `originalError` 로 원인을 직접 확인할 수 있다.
+
+all-in-one npm 배포 아티팩트가 필요하면 아래 스크립트를 쓴다.
+
+```bash
+npm run build:all-in-one
+npm run publish:all-in-one:dry-run
+```
+
+이 스크립트는 `.npm-package/` 아래에 runtime dependency 없는 publish 전용 package manifest 와 `dist/` 번들을 만든다.
+
 ## 문서
-- [memory guide](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/memory-guide.md)
-- [local setup](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/local-setup.md)
-- [runtime overview](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/runtime-overview.md)
-- [consumer example](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/consumer-example.md)
-- [OpenAI Chat API](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/docs/openai-chat-api.md)
-- [sample project](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/sample-project/README.md)
-- [AXPM example project](/Users/fortrit/workspace/agentic-task-kit/agentic-task-kit-axpm/example-project/README.md)
+- [developer guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/developer-guide.md)
+- [memory guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/memory-guide.md)
+- [local setup](https://github.com/skyend/agentic-task-kit/blob/main/docs/local-setup.md)
+- [runtime overview](https://github.com/skyend/agentic-task-kit/blob/main/docs/runtime-overview.md)
+- [consumer example](https://github.com/skyend/agentic-task-kit/blob/main/docs/consumer-example.md)
+- [OpenAI Chat API](https://github.com/skyend/agentic-task-kit/blob/main/docs/openai-chat-api.md)
+- [sample project](https://github.com/skyend/agentic-task-kit/blob/main/sample-project/README.md)
+- [AXPM example project](https://github.com/skyend/agentic-task-kit-axpm/blob/main/example-project/README.md)
