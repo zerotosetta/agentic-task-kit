@@ -243,6 +243,20 @@ const cycle = createCycle({
 
 provider 문서는 [openai-chat-api.md](./openai-chat-api.md) 를 본다.
 
+## All-in-one npm 패키지 빌드
+배포용으로는 runtime dependency 를 비운 publish artifact 를 `.npm-package/` 아래에 만든다.
+
+```bash
+npm run build:all-in-one
+npm run publish:all-in-one:dry-run
+```
+
+실제 publish 는 다음 스크립트다.
+
+```bash
+npm run publish:all-in-one
+```
+
 ## AI task 에 memory context 넣기
 memory 조회는 자동이지만, AI 프롬프트 주입은 task 코드가 직접 한다.
 
