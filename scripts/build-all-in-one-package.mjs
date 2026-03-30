@@ -34,7 +34,7 @@ function createPublishManifest(rootManifest) {
     main: "./dist/index.js",
     types: "./dist/index.d.ts",
     exports: rootManifest.exports,
-    files: ["dist", "README.md"],
+    files: ["dist", "README.md", "LICENSE"],
     keywords: rootManifest.keywords,
     engines: rootManifest.engines,
     license: rootManifest.license
@@ -48,6 +48,7 @@ async function main() {
 
   const packageJsonPath = resolve(projectRoot, "package.json");
   const readmePath = resolve(projectRoot, "README.md");
+  const licensePath = resolve(projectRoot, "LICENSE");
   const rootManifest = JSON.parse(await readFile(packageJsonPath, "utf8"));
   const publishManifest = createPublishManifest(rootManifest);
 
@@ -55,6 +56,7 @@ async function main() {
   await mkdir(outputDir, { recursive: true });
   await cp(distDir, resolve(outputDir, "dist"), { recursive: true });
   await copyFile(readmePath, resolve(outputDir, "README.md"));
+  await copyFile(licensePath, resolve(outputDir, "LICENSE"));
 
   await writeFile(
     resolve(outputDir, "package.json"),

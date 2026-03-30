@@ -2,6 +2,7 @@
   "name": "agentic-task-kit-sample-project",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "build:library": "npm --prefix .. run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",

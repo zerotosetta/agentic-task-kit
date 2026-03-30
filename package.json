@@ -1,6 +1,6 @@
 {
   "name": "agentic-task-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cycle foundation MVP for implementing AX Workflow in Node.js and TypeScript.",
   "type": "module",
   "repository": {
@@ -23,7 +23,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "scripts": {
     "clean": "rm -rf dist",
