@@ -200,6 +200,8 @@ const cycle = createCycle({
 });
 ```
 
+HTTP 실패 시에는 `AIProviderRequestError` 가 throw 되고, `status`, `responseBody`, `originalError` 로 원인을 직접 확인할 수 있다.
+
 ## 문서
 - [developer guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/developer-guide.md)
 - [memory guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/memory-guide.md)

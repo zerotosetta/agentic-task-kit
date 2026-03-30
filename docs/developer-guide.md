@@ -224,6 +224,8 @@ const cycle = createCycle({
 });
 ```
 
+HTTP 요청이 실패하면 `AIProviderRequestError` 가 throw 된다. 이 error 에는 `status`, `responseBody`, `requestId`, `originalError` 가 들어 있으니 catch 후 그대로 로깅하면 원인 추적이 쉽다.
+
 설정 파일 경로를 쓰고 싶으면:
 
 ```ts

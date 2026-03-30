@@ -3,7 +3,10 @@ import { PassThrough } from "node:stream";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createOpenAICompatibleChatProvider } from "../src/index.js";
+import {
+  AIProviderRequestError,
+  createOpenAICompatibleChatProvider
+} from "../src/index.js";
 
 type CapturedRequest = {
   url: string;
@@ -47,6 +50,24 @@ async function createMockServer(): Promise<{
 
     const model = typeof body?.model === "string" ? body.model : "unknown-model";
     const isStream = body?.stream === true;
+
+    if (model === "missing-model") {
+      res.writeHead(404, {
+        "content-type": "application/json",
+        "x-request-id": "req-missing-model"
+      });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "Model missing-model was not found.",
+            type: "invalid_request_error",
+            code: "model_not_found",
+            param: "model"
+          }
+        })
+      );
+      return;
+    }
 
     if (!isStream) {
       res.writeHead(200, {
@@ -320,5 +341,81 @@ describe("OpenAI-compatible provider", () => {
     expect(output).toContain('"authorization":"[REDACTED]"');
     expect(output).toContain('"status":200');
     expect(output).toContain('"model":"debug-model"');
+  });
+
+  it("surfaces status code, response body, and original error for chat failures", async () => {
+    const mock = await createMockServer();
+    servers.push(mock.server);
+
+    const provider = createOpenAICompatibleChatProvider({
+      providerName: "mock-compatible-error",
+      apiKey: "test-key",
+      baseURL: mock.baseURL,
+      defaultModel: "missing-model"
+    });
+
+    let thrown: unknown;
+    try {
+      await provider.chat({
+        messages: [
+          {
+            role: "user",
+            content: "Trigger a not found error."
+          }
+        ]
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AIProviderRequestError);
+    const providerError = thrown as AIProviderRequestError;
+    expect(providerError.status).toBe(404);
+    expect(providerError.code).toBe("model_not_found");
+    expect(providerError.type).toBe("invalid_request_error");
+    expect(providerError.param).toBe("model");
+    expect(providerError.requestId).toBe("req-missing-model");
+    expect(providerError.responseBody).toEqual({
+      message: "Model missing-model was not found.",
+      type: "invalid_request_error",
+      code: "model_not_found",
+      param: "model"
+    });
+    expect(providerError.originalError).toBeInstanceOf(Error);
+    expect(providerError.message).toContain("status=404");
+    expect(providerError.message).toContain("response=");
+  });
+
+  it("surfaces enriched errors for streaming failures", async () => {
+    const mock = await createMockServer();
+    servers.push(mock.server);
+
+    const provider = createOpenAICompatibleChatProvider({
+      providerName: "mock-compatible-stream-error",
+      apiKey: "test-key",
+      baseURL: mock.baseURL,
+      defaultModel: "missing-model"
+    });
+
+    const stream = await provider.chatStream({
+      messages: [
+        {
+          role: "user",
+          content: "Trigger a streamed not found error."
+        }
+      ]
+    });
+
+    await expect(stream.finalResponse).rejects.toBeInstanceOf(AIProviderRequestError);
+    await expect(
+      (async () => {
+        for await (const _chunk of stream) {
+          // no-op
+        }
+      })()
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "model_not_found"
+    });
   });
 });
