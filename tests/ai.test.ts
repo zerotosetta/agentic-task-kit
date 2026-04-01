@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   createCLIRenderer,
   createCycle,
+  createWorkflowInput,
   InMemoryArtifactStore,
   InMemoryMemoryEngine,
   OpenAISummaryWorkflow,
@@ -83,9 +84,12 @@ describe("AI provider integration", () => {
     });
 
     cycle.register("openai-summary", OpenAISummaryWorkflow);
-    const result = await cycle.run("openai-summary", {
-      objective: "Summarize AI configuration support in the library."
-    });
+    const result = await cycle.run(
+      "openai-summary",
+      createWorkflowInput({
+        objective: "Summarize AI configuration support in the library."
+      }),
+    );
 
     expect(result.frame.status).toBe("success");
     expect(result.frame.completedTasks).toEqual(["generateSummary", "publishSummary"]);

@@ -25,6 +25,7 @@ import type {
   RunOptions,
   TaskResult,
   Transition,
+  WorkflowInput,
   WorkflowContext,
   WorkflowDefinition
 } from "./types.js";
@@ -187,7 +188,7 @@ class DefaultCycle implements Cycle {
 
   async run(
     key: string,
-    input: unknown,
+    input: WorkflowInput,
     options: RunOptions = {},
   ): Promise<{ frame: ExecutionFrame }> {
     const workflow = this.workflows.get(key);

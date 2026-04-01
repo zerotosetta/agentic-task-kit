@@ -6,21 +6,17 @@ import type {
   WorkflowDefinition,
   WorkflowMemory
 } from "../types.js";
+import {
+  getWorkflowInputValue,
+  workflowInputToPrettyJson
+} from "../workflow-input.js";
 
-function toInputText(input: unknown): string {
-  if (typeof input === "string") {
-    return input;
-  }
-
-  return JSON.stringify(input, null, 2);
+function toInputText(input: WorkflowContext["input"]): string {
+  return workflowInputToPrettyJson(input);
 }
 
-function resolveRequestHeaders(input: unknown): AIHTTPHeaders | undefined {
-  if (!input || typeof input !== "object" || !("requestHeaders" in input)) {
-    return undefined;
-  }
-
-  const requestHeaders = input.requestHeaders;
+function resolveRequestHeaders(input: WorkflowContext["input"]): AIHTTPHeaders | undefined {
+  const requestHeaders = getWorkflowInputValue<Record<string, unknown>>(input, "requestHeaders");
   if (!requestHeaders || typeof requestHeaders !== "object" || Array.isArray(requestHeaders)) {
     return undefined;
   }

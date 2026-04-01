@@ -157,7 +157,9 @@ default -> ["knowledge"]
 run 시작 전에 seed memory 를 넣고 싶으면 `memoryInjection` 과 `rag` 를 사용한다.
 
 ```ts
-await cycle.run("hook-workflow", input, {
+import { createWorkflowInput } from "agentic-task-kit";
+
+await cycle.run("hook-workflow", createWorkflowInput(input), {
   memoryInjection: [
     {
       id: "memory.user.summary.hook-user",

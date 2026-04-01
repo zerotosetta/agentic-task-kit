@@ -1,5 +1,7 @@
 export type TaskStatus = "success" | "fail" | "retry" | "skip" | (string & {});
 
+export type WorkflowInput = Map<string, any>;
+
 export type TaskResult<T = unknown> = {
   status: TaskStatus;
   output?: T;
@@ -181,7 +183,7 @@ export type BeforeStepInput = {
   taskName: string;
   taskType: MemoryTaskType;
   phase: MemoryPhase;
-  input: unknown;
+  input: WorkflowInput;
   now: number;
 };
 
@@ -548,7 +550,7 @@ export type ExecutionFrame = {
 export interface WorkflowContext {
   workflowId: string;
   runId: string;
-  input: unknown;
+  input: WorkflowInput;
   session: AISession;
   ai: AIProvider;
   memory: MemoryEngine;
@@ -567,7 +569,7 @@ export type RunOptions = {
 
 export interface Cycle {
   register(key: string, workflow: WorkflowDefinition): void;
-  run(key: string, input: unknown, options?: RunOptions): Promise<{ frame: ExecutionFrame }>;
+  run(key: string, input: WorkflowInput, options?: RunOptions): Promise<{ frame: ExecutionFrame }>;
 }
 
 export type CycleOptions = {

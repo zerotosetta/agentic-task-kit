@@ -26,6 +26,14 @@ export {
 } from "./openai-provider.js";
 export { Task } from "./task.js";
 export { createCLIRenderer } from "./renderer.js";
+export {
+  createWorkflowInput,
+  getWorkflowInputValue,
+  requireWorkflowInputValue,
+  toSerializableValue,
+  workflowInputToObject,
+  workflowInputToPrettyJson
+} from "./workflow-input.js";
 export { ReportWorkflow } from "./examples/report-workflow.js";
 export { OpenAISummaryWorkflow } from "./examples/openai-summary-workflow.js";
 export { OpenAIStreamingSummaryWorkflow } from "./examples/openai-streaming-summary-workflow.js";
@@ -95,5 +103,6 @@ export type {
   TaskStatus,
   Transition,
   WorkflowContext,
+  WorkflowInput,
   WorkflowDefinition
 } from "./types.js";

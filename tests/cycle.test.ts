@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   createCLIRenderer,
   createCycle,
+  createWorkflowInput,
   InMemoryArtifactStore,
   InMemoryMemoryEngine,
   ReportWorkflow,
@@ -40,7 +41,9 @@ describe("Cycle foundation MVP", () => {
     cycle.register("report", ReportWorkflow);
     const result = await cycle.run(
       "report",
-      "Cycle foundation MVP should produce observable workflow results.",
+      createWorkflowInput({
+        text: "Cycle foundation MVP should produce observable workflow results."
+      }),
     );
 
     expect(result.frame.status).toBe("success");
@@ -111,7 +114,7 @@ describe("Cycle foundation MVP", () => {
     });
 
     cycle.register("failing-report", FailingWorkflow);
-    const result = await cycle.run("failing-report", {});
+    const result = await cycle.run("failing-report", createWorkflowInput());
 
     expect(result.frame.status).toBe("fail");
     expect(output).toContain("task.failed failTask Validation mismatch: missing required field");
@@ -176,9 +179,9 @@ describe("Cycle foundation MVP", () => {
 
     const result = await cycle.run(
       "hook-workflow",
-      {
+      createWorkflowInput({
         request: "demo"
-      },
+      }),
       {
         memoryInjection: [
           {

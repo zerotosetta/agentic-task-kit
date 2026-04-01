@@ -5,6 +5,10 @@ import type {
   WorkflowContext,
   WorkflowMemory
 } from "../types.js";
+import {
+  getWorkflowInputValue,
+  workflowInputToPrettyJson
+} from "../workflow-input.js";
 
 function summarizeText(text: string): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
@@ -22,9 +26,8 @@ class AnalyzeTask extends Task {
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     const sourceText =
-      typeof ctx.input === "string"
-        ? ctx.input
-        : JSON.stringify(ctx.input, null, 2);
+      getWorkflowInputValue<string>(ctx.input, "text") ??
+      workflowInputToPrettyJson(ctx.input);
 
     ctx.log.info("Starting analysis", {
       inputLength: sourceText.length

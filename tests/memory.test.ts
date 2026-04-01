@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createWorkflowInput,
   DeterministicHashEmbeddingProvider,
   InMemoryKVStore,
   InMemoryMemoryEngine,
@@ -147,9 +148,9 @@ describe("Memory Engine V2", () => {
         taskName: "validate",
         taskType: "debug",
         phase: "RECOVERY",
-        input: {
+        input: createWorkflowInput({
           index,
-        },
+        }),
         result: {
           status: "fail",
           error: {
