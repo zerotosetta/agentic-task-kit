@@ -37,6 +37,8 @@ const cycle = createCycle({
 task 에서는 `ctx.ai.chat()` 로 호출한다.
 
 ```ts
+import { workflowInputToPrettyJson } from "agentic-task-kit";
+
 const completion = await ctx.ai.chat({
   messages: [
     {
@@ -45,7 +47,7 @@ const completion = await ctx.ai.chat({
     },
     {
       role: "user",
-      content: JSON.stringify(ctx.input)
+      content: workflowInputToPrettyJson(ctx.input)
     }
   ]
 });

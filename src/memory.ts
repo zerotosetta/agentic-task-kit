@@ -29,6 +29,7 @@ import type {
   WorkflowMemory,
   WriteDisposition
 } from "./types.js";
+import { toSerializableValue } from "./workflow-input.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_CONTEXT_TOKENS = 8_192;
@@ -1095,7 +1096,7 @@ function stringifyPayload(payload: MemoryRecord["payload"], description: string)
 
 function safeJson(value: unknown): string {
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(toSerializableValue(value));
   } catch {
     return String(value);
   }

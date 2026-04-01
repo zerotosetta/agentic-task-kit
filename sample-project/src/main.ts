@@ -6,6 +6,7 @@ import {
   createCLIRenderer,
   createCycle,
   createOpenAICompatibleChatProvider,
+  createWorkflowInput,
   loadOpenAICompatibleChatProviderOptionsFromConfigFile,
   OpenAISummaryWorkflow,
   resolveOpenAICompatibleChatConfigPath,
@@ -119,12 +120,15 @@ const cycle = createCycle({
 
 cycle.register("openai-summary", OpenAISummaryWorkflow);
 
-const { frame } = await cycle.run("openai-summary", {
-  product: "Cycle",
-  objective: "Summarize OpenAI-compatible configuration support for a sample host application.",
-  configPath,
-  ...(requestHeaders ? { requestHeaders } : {})
-});
+const { frame } = await cycle.run(
+  "openai-summary",
+  createWorkflowInput({
+    product: "Cycle",
+    objective: "Summarize OpenAI-compatible configuration support for a sample host application.",
+    configPath,
+    ...(requestHeaders ? { requestHeaders } : {})
+  })
+);
 
 process.stdout.write(
   `Sample project finished with status=${frame.status} completedTasks=${frame.completedTasks.join(",")}\n`

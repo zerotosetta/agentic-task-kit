@@ -1,12 +1,15 @@
 import {
   createCLIRenderer,
   createCycle,
+  createWorkflowInput,
+  getWorkflowInputValue,
   InMemoryArtifactStore,
   InMemoryMemoryEngine,
   Task,
   type CLIRendererOptions,
   type TaskResult,
   type UserMemory,
+  type WorkflowInput,
   type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowMemory
@@ -37,13 +40,31 @@ function resolveRendererOptions(): CLIRendererOptions {
   };
 }
 
+function requireBriefingInput(input: WorkflowInput): BriefingInput {
+  const customerName = getWorkflowInputValue<string>(input, "customerName");
+  const request = getWorkflowInputValue<string>(input, "request");
+  const priority = getWorkflowInputValue<BriefingInput["priority"]>(input, "priority");
+  const constraints = getWorkflowInputValue<string[]>(input, "constraints");
+
+  if (!customerName || !request || !priority || !Array.isArray(constraints)) {
+    throw new Error("Briefing workflow input is missing required fields.");
+  }
+
+  return {
+    customerName,
+    request,
+    priority,
+    constraints
+  };
+}
+
 class CaptureRequestTask extends Task {
   name = "captureRequest";
   memoryPhase = "PLANNING" as const;
   memoryTaskType = "user" as const;
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
-    const input = ctx.input as BriefingInput;
+    const input = requireBriefingInput(ctx.input);
     ctx.log.info("Capturing customer request", {
       customerName: input.customerName,
       priority: input.priority
@@ -86,7 +107,7 @@ class DraftPlanTask extends Task {
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     ctx.log.info("Drafting action plan");
-    const input = ctx.input as BriefingInput;
+    const input = requireBriefingInput(ctx.input);
     const requestRecord = await ctx.memory.get(`memory.user.summary.${input.customerName}`);
     const request = requestRecord?.payload as UserMemory | undefined;
 
@@ -194,12 +215,12 @@ const cycle = createCycle({
 
 cycle.register("customer-briefing", ConsumerWorkflow);
 
-const input: BriefingInput = {
+const input = createWorkflowInput({
   customerName: "Skyend Retail",
   request: "Create a rollout briefing for the first AX Workflow MVP pilot.",
   priority: "high",
   constraints: ["Keep the first release sequential only", "Show CLI line mode output"]
-};
+});
 
 const { frame } = await cycle.run("customer-briefing", input, {
   rag: [

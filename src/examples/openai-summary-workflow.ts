@@ -5,13 +5,10 @@ import type {
   WorkflowDefinition,
   WorkflowMemory
 } from "../types.js";
+import { workflowInputToPrettyJson } from "../workflow-input.js";
 
-function toInputText(input: unknown): string {
-  if (typeof input === "string") {
-    return input;
-  }
-
-  return JSON.stringify(input, null, 2);
+function toInputText(input: WorkflowContext["input"]): string {
+  return workflowInputToPrettyJson(input);
 }
 
 class GenerateSummaryTask extends Task {

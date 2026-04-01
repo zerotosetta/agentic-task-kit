@@ -18,9 +18,11 @@ OpenAI-compatible provider 를 사용할 예정이면 추가 설정 파일이나
 ```ts
 import {
   createCycle,
+  createWorkflowInput,
   InMemoryArtifactStore,
   InMemoryMemoryEngine,
   Task,
+  workflowInputToPrettyJson,
   type TaskResult,
   type WorkflowContext,
   type WorkflowDefinition
@@ -41,7 +43,7 @@ class CaptureInputTask extends Task {
         workflowId: ctx.workflowId,
         currentStep: this.name,
         history: [],
-        contextSummary: JSON.stringify(ctx.input)
+        contextSummary: workflowInputToPrettyJson(ctx.input)
       },
       description: "Initial workflow summary",
       keywords: ["workflow", "input", "summary"],
@@ -125,9 +127,12 @@ const cycle = createCycle({
 
 cycle.register("quick-start", workflow);
 
-const { frame } = await cycle.run("quick-start", {
-  request: "Generate the first AX Workflow artifact."
-});
+const { frame } = await cycle.run(
+  "quick-start",
+  createWorkflowInput({
+    request: "Generate the first AX Workflow artifact."
+  }),
+);
 
 console.log(frame.status);
 ```
@@ -137,6 +142,7 @@ console.log(frame.status);
 - task 는 `Task` 를 상속하고 `name`, `memoryPhase`, `memoryTaskType`, `run()` 을 구현한다.
 - transition 은 `success`, `fail`, `retry`, `skip` 같은 status 별 다음 상태를 정의한다.
 - `Cycle` 은 workflow registry 와 runtime entrypoint 역할을 한다.
+- workflow input contract 는 `Map<string, any>` 이고, plain object 는 `createWorkflowInput()` 으로 감싼다.
 
 ## task 작성 규칙
 모든 task 는 memory metadata 를 명시해야 한다.
@@ -270,7 +276,7 @@ const completion = await ctx.ai.chat({
     {
       role: "user",
       content:
-        `Input: ${JSON.stringify(ctx.input)}\n\n` +
+        `Input: ${workflowInputToPrettyJson(ctx.input)}\n\n` +
         `Retrieved memory:\n${ctx.memoryContext?.assembledContext ?? "none"}`
     }
   ]
@@ -327,7 +333,7 @@ const cycle = createCycle({
 run 시점에는 `rag`, `memoryInjection`, 추가 observer 를 넣을 수 있다.
 
 ```ts
-await cycle.run("quick-start", input, {
+await cycle.run("quick-start", createWorkflowInput(input), {
   rag: [
     {
       id: "policy",

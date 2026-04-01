@@ -10,6 +10,7 @@ npm install agentic-task-kit
 
 ## 현재 포함 범위
 - sequential workflow engine
+- `Map<string, any>` workflow input contract
 - shard/kind 기반 in-memory memory engine
 - in-memory artifact store
 - execution event stream
@@ -173,6 +174,21 @@ const cycle = createCycle({
 ```
 
 `CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH`, `CYCLE_OPENAI_CONFIG_PATH`, `OPENAI_CONFIG_PATH` 로도 경로를 지정할 수 있습니다.
+
+## Workflow Input Contract
+`Cycle.run()` 과 `WorkflowContext.input` 은 `Map<string, any>` 를 사용한다. plain object 입력은 `createWorkflowInput()` 으로 감싼다.
+
+```ts
+import { createCycle, createWorkflowInput } from "agentic-task-kit";
+
+const cycle = createCycle();
+const input = createWorkflowInput({
+  objective: "Generate a rollout summary",
+  priority: "high"
+});
+
+await cycle.run("report", input);
+```
 
 ## Memory Engine V2
 - `ctx.memory` 는 더 이상 단순 key/value `MemoryStore` 가 아니라 shard/hook/lifecycle 기반 `MemoryEngine` 이다.
