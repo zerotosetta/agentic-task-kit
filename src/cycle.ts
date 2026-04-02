@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createUnavailableAIProvider } from "./ai.js";
 import { createObservedArtifactStore, InMemoryArtifactStore } from "./artifacts.js";
 import { ExecutionBroadcaster } from "./events.js";
+import { createExecutionHistoryTracker } from "./history.js";
 import { createTaskLogger } from "./logging.js";
 import {
   createObservedMemoryEngine,
@@ -17,12 +18,17 @@ import type {
   AISessionMessage,
   ArtifactStore,
   Cycle,
+  CycleRunResult,
   CycleOptions,
   ExecutionFrame,
+  ExecutionHistoryTracker,
   ExecutionStatus,
+  LifecycleReport,
   MemoryRecordInput,
   ParallelTransition,
   RunOptions,
+  RunArtifact,
+  SubWorkflowRunOptions,
   TaskResult,
   Transition,
   WorkflowInput,
@@ -151,6 +157,72 @@ async function injectMemory(
   }
 }
 
+const EMPTY_LIFECYCLE_REPORT: LifecycleReport = {
+  archivedIds: [],
+  deletedIds: [],
+  compressedIds: [],
+  expiredIds: []
+};
+
+function isRunScopedRecord(
+  record: { workflowId?: string; runId?: string },
+  workflowId: string,
+  runId: string,
+): boolean {
+  return record.runId === runId || record.workflowId === workflowId;
+}
+
+function sortRecordsByTimestamp(left: { createdAt: number }, right: { createdAt: number }): number {
+  return left.createdAt - right.createdAt;
+}
+
+async function collectRunResultSnapshot(args: {
+  frame: ExecutionFrame;
+  memory: WorkflowContext["memory"];
+  artifacts: RunArtifact[];
+  lifecycle: LifecycleReport;
+  history: ExecutionHistoryTracker;
+}): Promise<CycleRunResult> {
+  const activeRecords = (await args.memory.list({ archived: false }))
+    .filter((record) => isRunScopedRecord(record, args.frame.workflowId, args.frame.runId))
+    .sort(sortRecordsByTimestamp);
+  const archivedRecords = (await args.memory.list({ archived: true }))
+    .filter((record) => isRunScopedRecord(record, args.frame.workflowId, args.frame.runId))
+    .sort(sortRecordsByTimestamp);
+
+  return {
+    frame: args.frame,
+    memory: {
+      records: [...activeRecords, ...archivedRecords],
+      activeRecords,
+      archivedRecords,
+      lifecycle: args.lifecycle
+    },
+    artifacts: {
+      artifacts: args.artifacts.map((artifact) => ({
+        ...artifact,
+        bytes: new Uint8Array(artifact.bytes)
+      }))
+    },
+    history: args.history.snapshot()
+  };
+}
+
+type ParentRunContext = {
+  workflowId: string;
+  runId: string;
+  branchId?: string;
+};
+
+type InternalRunOptions = {
+  key: string;
+  input: WorkflowInput;
+  options?: RunOptions | SubWorkflowRunOptions;
+  broadcaster?: ExecutionBroadcaster;
+  historyTracker: ExecutionHistoryTracker;
+  parent?: ParentRunContext;
+};
+
 class DefaultCycle implements Cycle {
   private readonly workflows = new Map<string, WorkflowDefinition>();
   private readonly aiProvider: AIProvider;
@@ -190,23 +262,126 @@ class DefaultCycle implements Cycle {
     key: string,
     input: WorkflowInput,
     options: RunOptions = {},
-  ): Promise<{ frame: ExecutionFrame }> {
-    const workflow = this.workflows.get(key);
-    if (!workflow) {
-      throw new Error(`Workflow "${key}" is not registered.`);
-    }
-
-    const observers = options.observers ?? [];
+  ): Promise<CycleRunResult> {
+    const historyTracker = createExecutionHistoryTracker();
     const runBroadcaster = new ExecutionBroadcaster([
       ...this.broadcaster.listObservers(),
-      ...observers
+      ...(options.observers ?? []),
+      historyTracker
     ]);
 
     await runBroadcaster.start();
+    let finalStatus: "success" | "fail" | undefined;
+
+    try {
+      const result = await this.runInternal({
+        key,
+        input,
+        options,
+        broadcaster: runBroadcaster,
+        historyTracker
+      });
+      finalStatus = result.frame.status === "success" ? "success" : "fail";
+      return result;
+    } finally {
+      await runBroadcaster.stop(finalStatus);
+    }
+  }
+
+  private async runSubWorkflow(
+    parent: ParentRunContext,
+    key: string,
+    input: WorkflowInput,
+    broadcaster: ExecutionBroadcaster,
+    options: SubWorkflowRunOptions = {},
+  ): Promise<CycleRunResult> {
+    const branchId = options.branchId ?? `branch_${randomUUID().slice(0, 8)}`;
+    const historyTracker = createExecutionHistoryTracker();
+    broadcaster.addObserver(historyTracker);
+
+    await broadcaster.emit({
+      type: "branch.started",
+      timestamp: this.now(),
+      workflowId: parent.workflowId,
+      runId: parent.runId,
+      branchId,
+      summary: options.summary ?? `sub-workflow ${key} started`,
+      meta: {
+        subWorkflowKey: key
+      }
+    });
+
+    const workflow = this.workflows.get(key);
+    if (!workflow) {
+      broadcaster.removeObserver(historyTracker);
+      throw new Error(`Workflow "${key}" is not registered.`);
+    }
+
+    try {
+      const result = await this.runInternal({
+        key,
+        input,
+        options,
+        broadcaster,
+        historyTracker,
+        parent: {
+          ...parent,
+          branchId
+        }
+      });
+
+      await broadcaster.emit({
+        type: "branch.completed",
+        timestamp: this.now(),
+        workflowId: parent.workflowId,
+        runId: parent.runId,
+        branchId,
+        summary: options.summary ?? `sub-workflow ${key} completed`,
+        status: result.frame.status,
+        meta: {
+          subWorkflowKey: key,
+          childWorkflowId: result.frame.workflowId,
+          childRunId: result.frame.runId
+        }
+      });
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await broadcaster.emit({
+        type: "branch.completed",
+        timestamp: this.now(),
+        workflowId: parent.workflowId,
+        runId: parent.runId,
+        branchId,
+        summary: options.summary ?? `sub-workflow ${key} failed`,
+        status: "fail",
+        meta: {
+          subWorkflowKey: key,
+          errorMessage: message
+        }
+      });
+      throw error;
+    } finally {
+      broadcaster.removeObserver(historyTracker);
+    }
+  }
+
+  private async runInternal(args: InternalRunOptions): Promise<CycleRunResult> {
+    const workflow = this.workflows.get(args.key);
+    if (!workflow) {
+      throw new Error(`Workflow "${args.key}" is not registered.`);
+    }
+
+    const runBroadcaster = args.broadcaster;
+    if (!runBroadcaster) {
+      throw new Error("Run broadcaster is required.");
+    }
 
     const workflowId = `${workflow.name}-${randomUUID().slice(0, 8)}`;
     const runId = `run_${randomUUID().slice(0, 8)}`;
     const frame = createFrame(workflowId, runId, workflow.start, this.now());
+    const runArtifacts: RunArtifact[] = [];
     const memory = createObservedMemoryEngine({
       engine: this.memoryEngine,
       broadcaster: runBroadcaster,
@@ -219,18 +394,32 @@ class DefaultCycle implements Cycle {
       broadcaster: runBroadcaster,
       workflowId,
       runId,
-      now: this.now
+      now: this.now,
+      onCreate: (artifact) => {
+        runArtifacts.push(artifact);
+      }
     });
+    let lifecycleReport = EMPTY_LIFECYCLE_REPORT;
 
-    await injectRag(workflowId, runId, memory, this.now(), options.rag);
-    await injectMemory(memory, options.memoryInjection);
+    const meta =
+      args.parent
+        ? {
+            parentWorkflowId: args.parent.workflowId,
+            parentRunId: args.parent.runId,
+            ...(args.parent.branchId ? { branchId: args.parent.branchId } : {})
+          }
+        : undefined;
+
+    await injectRag(workflowId, runId, memory, this.now(), args.options?.rag);
+    await injectMemory(memory, args.options?.memoryInjection);
 
     await runBroadcaster.emit({
       type: "workflow.started",
       timestamp: this.now(),
       workflowId,
       runId,
-      summary: `${workflow.name} start=${workflow.start}`
+      summary: `${workflow.name} start=${workflow.start}`,
+      ...(meta ? { meta } : {})
     });
 
     const endState = workflow.end ?? "end";
@@ -251,7 +440,8 @@ class DefaultCycle implements Cycle {
           workflowId,
           runId,
           taskName: task.name,
-          summary: `queued ${task.name}`
+          summary: `queued ${task.name}`,
+          ...(meta ? { meta } : {})
         });
 
         await runBroadcaster.emit({
@@ -260,7 +450,8 @@ class DefaultCycle implements Cycle {
           workflowId,
           runId,
           taskName: task.name,
-          summary: `started ${task.name}`
+          summary: `started ${task.name}`,
+          ...(meta ? { meta } : {})
         });
 
         const log = createTaskLogger({
@@ -268,6 +459,7 @@ class DefaultCycle implements Cycle {
           workflowId,
           runId,
           taskName: task.name,
+          ...(args.parent?.branchId ? { branchId: args.parent.branchId } : {}),
           now: this.now
         });
         const memoryContext = await memory.beforeStep({
@@ -277,21 +469,32 @@ class DefaultCycle implements Cycle {
           taskName: task.name,
           taskType: task.memoryTaskType,
           phase: task.memoryPhase,
-          input,
+          input: args.input,
           now: this.now()
         });
 
         const context: WorkflowContext = {
           workflowId,
           runId,
-          input,
+          input: args.input,
           session: createSession(this.llmModelId, this.embeddingModelId),
           ai: this.aiProvider,
           memory,
           memoryContext,
           artifacts,
           log,
-          now: this.now
+          now: this.now,
+          runSubWorkflow: (key, input, options) =>
+            this.runSubWorkflow(
+              {
+                workflowId,
+                runId
+              },
+              key,
+              input,
+              runBroadcaster,
+              options
+            )
         };
 
         if (task.before) {
@@ -322,7 +525,7 @@ class DefaultCycle implements Cycle {
           taskName: task.name,
           taskType: task.memoryTaskType,
           phase: task.memoryPhase,
-          input,
+          input: args.input,
           result,
           now: this.now()
         });
@@ -345,6 +548,7 @@ class DefaultCycle implements Cycle {
             summary: errorMessage,
             status: result.status,
             meta: {
+              ...meta,
               errorMessage,
               ...(result.error?.code ? { errorCode: result.error.code } : {}),
               ...(result.error?.details !== undefined
@@ -362,7 +566,8 @@ class DefaultCycle implements Cycle {
               runId,
               taskName: task.name,
               summary: `retry scheduled for ${task.name}`,
-              status: result.status
+              status: result.status,
+              ...(meta ? { meta } : {})
             });
           } else {
             await runBroadcaster.emit({
@@ -372,7 +577,8 @@ class DefaultCycle implements Cycle {
               runId,
               taskName: task.name,
               summary: `completed ${task.name}`,
-              status: result.status
+              status: result.status,
+              ...(meta ? { meta } : {})
             });
           }
         }
@@ -387,7 +593,7 @@ class DefaultCycle implements Cycle {
         }
       }
 
-      await memory.runLifecycle(this.now());
+      lifecycleReport = await memory.runLifecycle(this.now());
       frame.status = finalStatus;
 
       if (finalStatus === "fail") {
@@ -399,6 +605,7 @@ class DefaultCycle implements Cycle {
           summary: `${workflow.name} failed`,
           status: finalStatus,
           meta: {
+            ...meta,
             errors: [...frame.errors],
             errorMessage: frame.errors[frame.errors.length - 1]
           }
@@ -412,14 +619,20 @@ class DefaultCycle implements Cycle {
           summary: `${workflow.name} completed`,
           status: finalStatus,
           meta: {
+            ...meta,
             completedTasks: [...frame.completedTasks]
           }
         });
       }
 
       await runBroadcaster.flush();
-      await runBroadcaster.stop(finalStatus);
-      return { frame };
+      return collectRunResultSnapshot({
+        frame,
+        memory,
+        artifacts: runArtifacts,
+        lifecycle: lifecycleReport,
+        history: args.historyTracker
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       frame.status = "fail";
@@ -434,12 +647,18 @@ class DefaultCycle implements Cycle {
         summary: message,
         status: "fail",
         meta: {
+          ...meta,
           errorMessage: message
         }
       });
       await runBroadcaster.flush();
-      await runBroadcaster.stop("fail");
-      return { frame };
+      return collectRunResultSnapshot({
+        frame,
+        memory,
+        artifacts: runArtifacts,
+        lifecycle: lifecycleReport,
+        history: args.historyTracker
+      });
     }
   }
 }

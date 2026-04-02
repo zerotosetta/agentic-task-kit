@@ -190,6 +190,55 @@ const input = createWorkflowInput({
 await cycle.run("report", input);
 ```
 
+## Run Result Snapshot
+`Cycle.run()` 은 `frame` 뿐 아니라 실행 종료 시점의 memory/artifact/history snapshot 도 함께 반환한다.
+
+```ts
+const result = await cycle.run("report", input);
+
+console.log(result.frame.status);
+console.log(result.memory.records.length);
+console.log(result.artifacts.artifacts.map((artifact) => artifact.name));
+console.log(result.history.events.map((event) => event.type));
+```
+
+## Sub Workflow And Live Tracking
+task 실행 중에는 `ctx.runSubWorkflow()` 로 등록된 다른 workflow 를 이어서 실행할 수 있고, `createExecutionHistoryTracker()` 로 실시간 실행 이력을 구독할 수 있다.
+
+```ts
+import {
+  Task,
+  createCycle,
+  createExecutionHistoryTracker,
+  createWorkflowInput,
+  type TaskResult,
+  type WorkflowContext
+} from "agentic-task-kit";
+
+const tracker = createExecutionHistoryTracker();
+tracker.subscribe((snapshot) => {
+  console.log(snapshot.events.length, snapshot.taskLogs.length);
+});
+
+class ParentTask extends Task {
+  name = "parent";
+  memoryPhase = "EXECUTION" as const;
+  memoryTaskType = "workflow" as const;
+
+  async run(ctx: WorkflowContext): Promise<TaskResult> {
+    const child = await ctx.runSubWorkflow("child", createWorkflowInput(), {
+      branchId: "branch.child",
+      summary: "run child workflow"
+    });
+
+    return {
+      status: "success",
+      output: child.frame.status
+    };
+  }
+}
+```
+
 ## Memory Engine V2
 - `ctx.memory` 는 더 이상 단순 key/value `MemoryStore` 가 아니라 shard/hook/lifecycle 기반 `MemoryEngine` 이다.
 - 모든 task 는 `memoryPhase` 와 `memoryTaskType` 을 명시해야 하고, runtime 이 자동으로 `beforeStep()` retrieval 과 `afterStep()` write 를 호출한다.

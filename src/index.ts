@@ -2,6 +2,7 @@ export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
 export { AIProviderRequestError } from "./errors.js";
 export { ExecutionBroadcaster } from "./events.js";
+export { createExecutionHistoryTracker } from "./history.js";
 export { createTaskLogger } from "./logging.js";
 export {
   createObservedMemoryEngine,
@@ -57,10 +58,15 @@ export type {
   CLIRenderer,
   CLIRendererOptions,
   Cycle,
+  CycleRunArtifactSnapshot,
+  CycleRunMemorySnapshot,
+  CycleRunResult,
   CycleOptions,
   EmbeddingProvider,
   ExecutionEvent,
   ExecutionFrame,
+  ExecutionHistorySnapshot,
+  ExecutionHistoryTracker,
   ExecutionObserver,
   ExecutionStatus,
   GraphStore,
@@ -94,7 +100,9 @@ export type {
   OpenAIChatProviderFileConfig,
   OpenAIChatProviderConfigFileOptions,
   ParallelTransition,
+  RunArtifact,
   RunOptions,
+  SubWorkflowRunOptions,
   TaskLike,
   TaskLogEvent,
   TaskLogLevel,

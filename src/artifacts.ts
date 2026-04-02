@@ -1,7 +1,8 @@
 import type {
   Artifact,
   ArtifactStore,
-  ExecutionEvent
+  ExecutionEvent,
+  RunArtifact
 } from "./types.js";
 import { ExecutionBroadcaster } from "./events.js";
 
@@ -62,6 +63,7 @@ type ObservedArtifactStoreArgs = {
   workflowId: string;
   runId: string;
   now: () => number;
+  onCreate?: (artifact: RunArtifact) => void | Promise<void>;
 };
 
 export function createObservedArtifactStore(args: ObservedArtifactStoreArgs): ArtifactStore {
@@ -88,6 +90,10 @@ export function createObservedArtifactStore(args: ObservedArtifactStoreArgs): Ar
   return {
     async create(input) {
       const artifact = await args.store.create(input);
+      await args.onCreate?.({
+        ...artifact,
+        bytes: new Uint8Array(input.bytes)
+      });
       await emit("artifact.created", `artifact created ${artifact.name}`, {
         artifactId: artifact.artifactId,
         name: artifact.name,

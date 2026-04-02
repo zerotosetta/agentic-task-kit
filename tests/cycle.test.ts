@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   createCLIRenderer,
   createCycle,
+  createExecutionHistoryTracker,
   createWorkflowInput,
   InMemoryArtifactStore,
   InMemoryMemoryEngine,
@@ -48,6 +49,19 @@ describe("Cycle foundation MVP", () => {
 
     expect(result.frame.status).toBe("success");
     expect(result.frame.completedTasks).toEqual(["analyze", "publish"]);
+    expect(result.memory.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `memory.workflow.summary.${result.frame.workflowId}.analyze`
+        })
+      ])
+    );
+    expect(result.artifacts.artifacts).toHaveLength(1);
+    expect(result.artifacts.artifacts[0]?.name).toBe("report.md");
+    expect(new TextDecoder().decode(result.artifacts.artifacts[0]?.bytes)).toContain("# Cycle Report");
+    expect(result.history.events.some((event) => event.type === "workflow.started")).toBe(true);
+    expect(result.history.events.some((event) => event.type === "workflow.completed")).toBe(true);
+    expect(result.history.taskLogs.some((event) => event.message === "Starting analysis")).toBe(true);
 
     const summary = await memoryEngine.get(
       `memory.workflow.summary.${result.frame.workflowId}.analyze`,
@@ -225,5 +239,179 @@ describe("Cycle foundation MVP", () => {
         expect.stringContaining("memory.knowledge.raw.rag."),
       ])
     });
+  });
+
+  it("supports running sub workflows during task execution with branch tracking", async () => {
+    class ChildTask extends Task {
+      name = "childTask";
+      memoryPhase = "EXECUTION" as const;
+      memoryTaskType = "workflow" as const;
+
+      async run(ctx: WorkflowContext): Promise<TaskResult> {
+        await ctx.memory.write({
+          id: `memory.workflow.summary.${ctx.workflowId}.child`,
+          shard: "workflow",
+          kind: "summary",
+          payload: {
+            workflowId: ctx.workflowId,
+            currentStep: this.name,
+            history: [],
+            contextSummary: "child workflow completed"
+          },
+          description: "Child workflow summary",
+          keywords: ["child", "workflow"],
+          importance: 0.91,
+          workflowId: ctx.workflowId,
+          runId: ctx.runId,
+          sourceTask: this.name,
+          phase: this.memoryPhase,
+          taskType: this.memoryTaskType
+        });
+
+        const artifact = await ctx.artifacts.create({
+          name: "child.txt",
+          mimeType: "text/plain",
+          bytes: new TextEncoder().encode("child-result")
+        });
+
+        return {
+          status: "success",
+          output: {
+            artifactId: artifact.artifactId
+          }
+        };
+      }
+    }
+
+    class ParentTask extends Task {
+      name = "invokeChild";
+      memoryPhase = "EXECUTION" as const;
+      memoryTaskType = "workflow" as const;
+
+      async run(ctx: WorkflowContext): Promise<TaskResult> {
+        const child = await ctx.runSubWorkflow(
+          "child-workflow",
+          createWorkflowInput({
+            source: "parent"
+          }),
+          {
+            branchId: "branch.child",
+            summary: "invoke child workflow"
+          }
+        );
+
+        return {
+          status: "success",
+          output: {
+            childStatus: child.frame.status,
+            childArtifacts: child.artifacts.artifacts.map((artifact) => artifact.name),
+            childHistoryTypes: child.history.events.map((event) => event.type)
+          }
+        };
+      }
+    }
+
+    const ChildWorkflow: WorkflowDefinition = {
+      name: "child-workflow",
+      start: "childTask",
+      end: "end",
+      tasks: {
+        childTask: new ChildTask()
+      },
+      transitions: {
+        childTask: {
+          success: "end"
+        }
+      }
+    };
+
+    const ParentWorkflow: WorkflowDefinition = {
+      name: "parent-workflow",
+      start: "invokeChild",
+      end: "end",
+      tasks: {
+        invokeChild: new ParentTask()
+      },
+      transitions: {
+        invokeChild: {
+          success: "end"
+        }
+      }
+    };
+
+    const cycle = createCycle();
+    cycle.register("child-workflow", ChildWorkflow);
+    cycle.register("parent-workflow", ParentWorkflow);
+
+    const result = await cycle.run("parent-workflow", createWorkflowInput());
+    const childOutput = result.frame.taskResults.invokeChild?.output as
+      | {
+          childStatus: string;
+          childArtifacts: string[];
+          childHistoryTypes: string[];
+        }
+      | undefined;
+
+    expect(result.frame.status).toBe("success");
+    expect(childOutput).toMatchObject({
+      childStatus: "success",
+      childArtifacts: ["child.txt"]
+    });
+    expect(childOutput).toHaveProperty("childHistoryTypes");
+    expect(childOutput?.childHistoryTypes).toEqual(
+      expect.arrayContaining([
+        "branch.started",
+        "workflow.started",
+        "workflow.completed"
+      ])
+    );
+    expect(
+      result.history.events.some(
+        (event) => event.type === "branch.started" && event.branchId === "branch.child"
+      )
+    ).toBe(true);
+    expect(
+      result.history.events.some(
+        (event) => event.type === "branch.completed" && event.branchId === "branch.child"
+      )
+    ).toBe(true);
+    expect(
+      result.history.events.some(
+        (event) =>
+          event.type === "workflow.started" &&
+          event.meta?.["parentWorkflowId"] === result.frame.workflowId
+      )
+    ).toBe(true);
+  });
+
+  it("tracks execution history in real time through the tracker interface", async () => {
+    const tracker = createExecutionHistoryTracker();
+    const snapshots: number[] = [];
+    const unsubscribe = tracker.subscribe((snapshot) => {
+      snapshots.push(snapshot.events.length + snapshot.taskLogs.length);
+    });
+
+    const cycle = createCycle({
+      observers: [tracker],
+      now: (() => {
+        let current = 9_000;
+        return () => ++current;
+      })()
+    });
+    cycle.register("report", ReportWorkflow);
+
+    const result = await cycle.run(
+      "report",
+      createWorkflowInput({
+        text: "Track workflow execution updates"
+      })
+    );
+
+    unsubscribe();
+
+    expect(result.frame.status).toBe("success");
+    expect(snapshots.length).toBeGreaterThan(1);
+    expect(tracker.snapshot().events.some((event) => event.type === "workflow.completed")).toBe(true);
+    expect(tracker.snapshot().taskLogs.some((event) => event.message === "Artifact created")).toBe(true);
   });
 });

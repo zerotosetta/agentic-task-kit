@@ -137,6 +137,16 @@ const { frame } = await cycle.run(
 console.log(frame.status);
 ```
 
+`Cycle.run()` 반환값에는 `frame` 외에도 run 범위의 memory/artifact/history snapshot 이 포함된다.
+
+```ts
+const result = await cycle.run("quick-start", createWorkflowInput(input));
+
+console.log(result.memory.records.length);
+console.log(result.artifacts.artifacts.map((artifact) => artifact.name));
+console.log(result.history.events.map((event) => event.type));
+```
+
 ## 핵심 개념
 - workflow 는 `WorkflowDefinition` 으로 정의한다.
 - task 는 `Task` 를 상속하고 `name`, `memoryPhase`, `memoryTaskType`, `run()` 을 구현한다.
