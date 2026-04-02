@@ -27,8 +27,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "clean": "rm -rf dist",
-    "clean:all-in-one": "rm -rf .npm-package",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "clean:all-in-one": "node -e \"require('node:fs').rmSync('.npm-package', { recursive: true, force: true })\"",
     "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
     "build:bundle": "node ./scripts/build-package.mjs",
     "build:all-in-one": "npm run build && node ./scripts/build-all-in-one-package.mjs",

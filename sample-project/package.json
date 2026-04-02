@@ -10,10 +10,14 @@
     "start": "tsx ./src/main.ts",
     "start:line": "CYCLE_LIVE=0 tsx ./src/main.ts",
     "start:ink": "CYCLE_RENDER_MODE=ink tsx ./src/main.ts",
-    "start:stream": "tsx ./src/main-stream.ts"
+    "start:stream": "tsx ./src/main-stream.ts",
+    "start:sub": "tsx ./src/main-sub-workflow.ts",
+    "start:sub:line": "CYCLE_LIVE=0 tsx ./src/main-sub-workflow.ts",
+    "start:sub:ink": "cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts"
   },
   "dependencies": {
-    "agentic-task-kit": "file:.."
+    "agentic-task-kit": "file:..",
+    "cross-env": "^10.1.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

@@ -24,6 +24,45 @@ export type TimelineRow = {
   taskName?: string;
 };
 
+export type WorkflowTaskPhase = "queued" | "running" | "completed" | "failed" | "retry";
+
+export type WorkflowTaskState = {
+  taskName: string;
+  status: WorkflowTaskPhase;
+  queuedAt?: number;
+  startedAt?: number;
+  endedAt?: number;
+  updatedAt: number;
+};
+
+export type WorkflowBranchState = {
+  branchId: string;
+  summary: string;
+  status: "running" | "success" | "fail";
+  startedAt: number;
+  completedAt?: number;
+  childWorkflowId?: string;
+  childRunId?: string;
+};
+
+export type WorkflowRenderState = {
+  workflowId: string;
+  runId: string;
+  name: string;
+  summary: string;
+  status: "running" | "success" | "fail";
+  startedAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
+  parentWorkflowId?: string;
+  parentRunId?: string;
+  branchId?: string;
+  taskOrder: string[];
+  tasks: Map<string, WorkflowTaskState>;
+  branchOrder: string[];
+  branches: Map<string, WorkflowBranchState>;
+};
+
 export type RendererState = {
   workflowId: string | undefined;
   runId: string | undefined;
@@ -42,6 +81,8 @@ export type RendererState = {
   errorCount: number;
   startedAt: number | undefined;
   updatedAt: number | undefined;
+  workflowOrder: string[];
+  workflows: Map<string, WorkflowRenderState>;
 };
 
 export function createInitialRendererState(): RendererState {
@@ -62,7 +103,9 @@ export function createInitialRendererState(): RendererState {
     retryCount: 0,
     errorCount: 0,
     startedAt: undefined,
-    updatedAt: undefined
+    updatedAt: undefined,
+    workflowOrder: [],
+    workflows: new Map()
   };
 }
 
@@ -85,6 +128,28 @@ export function formatClock(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(11, 19);
 }
 
+export function formatDuration(durationMs: number | undefined): string {
+  if (durationMs === undefined || durationMs < 0) {
+    return "-";
+  }
+
+  if (durationMs < 1_000) {
+    return `${durationMs}ms`;
+  }
+
+  if (durationMs < 10_000) {
+    return `${(durationMs / 1_000).toFixed(1)}s`;
+  }
+
+  if (durationMs < 60_000) {
+    return `${Math.round(durationMs / 1_000)}s`;
+  }
+
+  const minutes = Math.floor(durationMs / 60_000);
+  const seconds = Math.round((durationMs % 60_000) / 1_000);
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
 function firstErrorFromMeta(meta: Record<string, unknown> | undefined): string | undefined {
   const errors = meta?.errors;
   if (!Array.isArray(errors)) {
@@ -93,6 +158,192 @@ function firstErrorFromMeta(meta: Record<string, unknown> | undefined): string |
 
   const first = errors.find((error) => typeof error === "string");
   return typeof first === "string" ? first : undefined;
+}
+
+function getMetaString(
+  event: ExecutionEvent,
+  key: string
+): string | undefined {
+  const value = event.meta?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function extractParentInfo(event: ExecutionEvent): {
+  parentWorkflowId?: string;
+  parentRunId?: string;
+  branchId?: string;
+} {
+  const parentWorkflowId = getMetaString(event, "parentWorkflowId");
+  const parentRunId = getMetaString(event, "parentRunId");
+  const branchId = getMetaString(event, "branchId");
+
+  return {
+    ...(parentWorkflowId ? { parentWorkflowId } : {}),
+    ...(parentRunId ? { parentRunId } : {}),
+    ...(branchId ? { branchId } : {})
+  };
+}
+
+function simplifyWorkflowId(workflowId: string): string {
+  return workflowId.replace(/-[a-f0-9]{8}$/iu, "");
+}
+
+function inferWorkflowName(summary: string, workflowId: string): string {
+  if (summary.includes(" start=")) {
+    return summary.split(" start=")[0] ?? simplifyWorkflowId(workflowId);
+  }
+
+  if (summary.endsWith(" completed")) {
+    return summary.slice(0, -" completed".length);
+  }
+
+  if (summary.endsWith(" failed")) {
+    return summary.slice(0, -" failed".length);
+  }
+
+  return simplifyWorkflowId(workflowId);
+}
+
+function ensureWorkflowNode(
+  state: RendererState,
+  args: {
+    workflowId: string;
+    runId: string;
+    summary?: string;
+    parentWorkflowId?: string;
+    parentRunId?: string;
+    branchId?: string;
+  }
+): WorkflowRenderState {
+  const existing = state.workflows.get(args.workflowId);
+  if (existing) {
+    if (args.summary) {
+      existing.summary = args.summary;
+      existing.name = inferWorkflowName(args.summary, existing.workflowId);
+    }
+    if (args.parentWorkflowId) {
+      existing.parentWorkflowId = args.parentWorkflowId;
+    }
+    if (args.parentRunId) {
+      existing.parentRunId = args.parentRunId;
+    }
+    if (args.branchId) {
+      existing.branchId = args.branchId;
+    }
+    return existing;
+  }
+
+  const created: WorkflowRenderState = {
+    workflowId: args.workflowId,
+    runId: args.runId,
+    name: inferWorkflowName(args.summary ?? args.workflowId, args.workflowId),
+    summary: args.summary ?? "",
+    status: "running",
+    ...(args.parentWorkflowId ? { parentWorkflowId: args.parentWorkflowId } : {}),
+    ...(args.parentRunId ? { parentRunId: args.parentRunId } : {}),
+    ...(args.branchId ? { branchId: args.branchId } : {}),
+    taskOrder: [],
+    tasks: new Map(),
+    branchOrder: [],
+    branches: new Map()
+  };
+
+  state.workflows.set(args.workflowId, created);
+  if (!args.parentWorkflowId && !state.workflowOrder.includes(args.workflowId)) {
+    state.workflowOrder.push(args.workflowId);
+  }
+
+  return created;
+}
+
+function ensureBranch(
+  workflow: WorkflowRenderState,
+  branchId: string,
+  summary: string,
+  timestamp: number
+): WorkflowBranchState {
+  const existing = workflow.branches.get(branchId);
+  if (existing) {
+    existing.summary = summary || existing.summary;
+    return existing;
+  }
+
+  const created: WorkflowBranchState = {
+    branchId,
+    summary,
+    status: "running",
+    startedAt: timestamp
+  };
+  workflow.branches.set(branchId, created);
+  workflow.branchOrder.push(branchId);
+  return created;
+}
+
+function ensureTask(
+  workflow: WorkflowRenderState,
+  taskName: string,
+  timestamp: number
+): WorkflowTaskState {
+  const existing = workflow.tasks.get(taskName);
+  if (existing) {
+    existing.updatedAt = timestamp;
+    return existing;
+  }
+
+  const created: WorkflowTaskState = {
+    taskName,
+    status: "queued",
+    updatedAt: timestamp
+  };
+  workflow.tasks.set(taskName, created);
+  workflow.taskOrder.push(taskName);
+  return created;
+}
+
+function connectToParentWorkflow(
+  state: RendererState,
+  workflow: WorkflowRenderState,
+  event: ExecutionEvent
+): void {
+  const parentInfo = extractParentInfo(event);
+  if (!parentInfo.parentWorkflowId) {
+    return;
+  }
+
+  workflow.parentWorkflowId = parentInfo.parentWorkflowId;
+  if (parentInfo.parentRunId) {
+    workflow.parentRunId = parentInfo.parentRunId;
+  }
+  if (parentInfo.branchId) {
+    workflow.branchId = parentInfo.branchId;
+  }
+
+  const parent = ensureWorkflowNode(state, {
+    workflowId: parentInfo.parentWorkflowId,
+    runId: parentInfo.parentRunId ?? workflow.runId
+  });
+  if (parentInfo.branchId) {
+    const branch = ensureBranch(
+      parent,
+      parentInfo.branchId,
+      parentInfo.branchId,
+      event.timestamp
+    );
+    branch.childWorkflowId = workflow.workflowId;
+    branch.childRunId = workflow.runId;
+  }
+}
+
+export function getTaskDurationMs(
+  task: WorkflowTaskState,
+  now: number
+): number | undefined {
+  if (task.startedAt === undefined) {
+    return undefined;
+  }
+
+  const endedAt = task.endedAt ?? task.updatedAt ?? now;
+  return Math.max(0, endedAt - task.startedAt);
 }
 
 export function failureReasonForEvent(event: ExecutionEvent): string | undefined {
@@ -183,7 +434,10 @@ function clipMiddle(value: string, maxWidth: number): string {
   return `${value.slice(0, maxWidth - 3)}...`;
 }
 
-function buildTaskHistoryText(event: ExecutionEvent & { taskName: string }): string {
+function buildTaskHistoryText(
+  event: ExecutionEvent & { taskName: string },
+  durationMs?: number
+): string {
   const failureReason = failureReasonForEvent(event);
   const phase =
     event.type === "task.retry_scheduled"
@@ -197,13 +451,18 @@ function buildTaskHistoryText(event: ExecutionEvent & { taskName: string }): str
             : "FAIL";
 
   const detail = failureReason ?? event.summary;
-  return `${formatClock(event.timestamp)} ${clipMiddle(event.taskName, 18)} ${phase} ${detail}`;
+  const durationSuffix =
+    durationMs !== undefined && event.type !== "task.queued"
+      ? ` ${formatDuration(durationMs)}`
+      : "";
+  return `${formatClock(event.timestamp)} ${clipMiddle(event.taskName, 18)} ${phase}${durationSuffix} ${detail}`;
 }
 
 function pushTaskHistory(
   state: RendererState,
   event: ExecutionEvent & { taskName: string },
-  maxHistoryRows: number
+  maxHistoryRows: number,
+  durationMs?: number
 ): void {
   const phase =
     event.type === "task.retry_scheduled"
@@ -217,14 +476,75 @@ function pushTaskHistory(
             : "failed";
 
   state.taskHistory.push({
-    id: `${event.type}:${event.taskName}:${event.timestamp}`,
+    id: `${event.type}:${event.workflowId}:${event.taskName}:${event.timestamp}`,
     timestamp: event.timestamp,
     taskName: event.taskName,
     phase,
     summary: failureReasonForEvent(event) ?? event.summary,
-    text: buildTaskHistoryText(event)
+    text: buildTaskHistoryText(event, durationMs)
   });
   state.taskHistory = state.taskHistory.slice(-maxHistoryRows);
+}
+
+function updateTaskStateFromEvent(
+  state: RendererState,
+  event: Extract<ExecutionEvent, { taskName: string }>
+): WorkflowTaskState {
+  const workflow = ensureWorkflowNode(state, {
+    workflowId: event.workflowId,
+    runId: event.runId
+  });
+  connectToParentWorkflow(state, workflow, event);
+  const task = ensureTask(workflow, event.taskName, event.timestamp);
+
+  switch (event.type) {
+    case "task.queued":
+      task.status = "queued";
+      task.queuedAt ??= event.timestamp;
+      break;
+    case "task.started":
+      task.status = "running";
+      task.startedAt ??= event.timestamp;
+      break;
+    case "task.completed":
+      task.status = "completed";
+      task.startedAt ??= task.queuedAt ?? event.timestamp;
+      task.endedAt = event.timestamp;
+      break;
+    case "task.failed":
+      task.status = "failed";
+      task.startedAt ??= task.queuedAt ?? event.timestamp;
+      task.endedAt = event.timestamp;
+      break;
+    case "task.retry_scheduled":
+      task.status = "retry";
+      task.startedAt ??= task.queuedAt ?? event.timestamp;
+      task.endedAt = event.timestamp;
+      break;
+  }
+
+  task.updatedAt = event.timestamp;
+  workflow.updatedAt = event.timestamp;
+  return task;
+}
+
+function maybeSetRootWorkflow(state: RendererState, event: ExecutionEvent): void {
+  if (state.workflowId !== undefined) {
+    return;
+  }
+
+  state.workflowId = event.workflowId;
+  state.runId = event.runId;
+}
+
+function maybePromoteTopLevelWorkflow(state: RendererState, event: ExecutionEvent): void {
+  const parentInfo = extractParentInfo(event);
+  if (!parentInfo.parentWorkflowId) {
+    state.workflowId = event.workflowId;
+    state.runId = event.runId;
+  } else {
+    maybeSetRootWorkflow(state, event);
+  }
 }
 
 export function reduceExecutionEvent(
@@ -234,56 +554,169 @@ export function reduceExecutionEvent(
   maxHistoryRows: number,
   maxTimelineRows = 480
 ): void {
-  state.workflowId = event.workflowId;
-  state.runId = event.runId;
+  maybeSetRootWorkflow(state, event);
   state.updatedAt = event.timestamp;
   state.recentEvents.push(lineForEvent(event));
   state.recentEvents = state.recentEvents.slice(-maxRecentEvents);
 
   switch (event.type) {
-    case "workflow.started":
+    case "workflow.started": {
+      maybePromoteTopLevelWorkflow(state, event);
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId,
+        summary: event.summary,
+        ...extractParentInfo(event)
+      });
+      workflow.summary = event.summary;
+      workflow.name = inferWorkflowName(event.summary, event.workflowId);
+      workflow.status = "running";
+      workflow.startedAt ??= event.timestamp;
+      workflow.updatedAt = event.timestamp;
+      connectToParentWorkflow(state, workflow, event);
+
       state.status = "running";
-      state.startedAt = event.timestamp;
+      state.startedAt ??= event.timestamp;
       state.lastFailure = undefined;
       break;
-    case "workflow.completed":
-      state.status = event.status;
-      state.lastFailure = undefined;
+    }
+    case "workflow.completed": {
+      maybePromoteTopLevelWorkflow(state, event);
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId,
+        summary: event.summary,
+        ...extractParentInfo(event)
+      });
+      workflow.summary = event.summary;
+      workflow.name = inferWorkflowName(event.summary, event.workflowId);
+      workflow.status = "success";
+      workflow.completedAt = event.timestamp;
+      workflow.updatedAt = event.timestamp;
+      connectToParentWorkflow(state, workflow, event);
+
+      if (!workflow.parentWorkflowId) {
+        state.status = event.status;
+        state.lastFailure = undefined;
+      }
       state.activeTasks.clear();
       break;
-    case "workflow.failed":
-      state.status = event.status;
-      state.lastFailure = failureReasonForEvent(event) ?? state.lastFailure;
-      state.errorCount += 1;
+    }
+    case "workflow.failed": {
+      maybePromoteTopLevelWorkflow(state, event);
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId,
+        summary: event.summary,
+        ...extractParentInfo(event)
+      });
+      workflow.summary = event.summary;
+      workflow.name = inferWorkflowName(event.summary, event.workflowId);
+      workflow.status = "fail";
+      workflow.completedAt = event.timestamp;
+      workflow.updatedAt = event.timestamp;
+      connectToParentWorkflow(state, workflow, event);
+
+      if (!workflow.parentWorkflowId) {
+        state.status = event.status;
+        state.lastFailure = failureReasonForEvent(event) ?? state.lastFailure;
+        state.errorCount += 1;
+      }
       state.activeTasks.clear();
       break;
-    case "task.queued":
-      pushTaskHistory(state, event, maxHistoryRows);
+    }
+    case "branch.started": {
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId
+      });
+      const summary =
+        getMetaString(event, "subWorkflowKey") ??
+        event.summary ??
+        event.branchId;
+      const branch = ensureBranch(workflow, event.branchId, summary, event.timestamp);
+      branch.status = "running";
+      branch.startedAt = event.timestamp;
+      workflow.updatedAt = event.timestamp;
       break;
-    case "task.started":
-      state.currentTask = event.taskName;
-      state.activeTasks.add(event.taskName);
-      pushTaskHistory(state, event, maxHistoryRows);
+    }
+    case "branch.completed": {
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId
+      });
+      const branch = ensureBranch(workflow, event.branchId, event.summary, event.timestamp);
+      branch.summary = event.summary;
+      branch.status = event.status === "fail" ? "fail" : "success";
+      branch.completedAt = event.timestamp;
+      const childWorkflowId = getMetaString(event, "childWorkflowId");
+      const childRunId = getMetaString(event, "childRunId");
+      if (childWorkflowId) {
+        branch.childWorkflowId = childWorkflowId;
+      }
+      if (childRunId) {
+        branch.childRunId = childRunId;
+      }
+      workflow.updatedAt = event.timestamp;
       break;
-    case "task.completed":
-      state.activeTasks.delete(event.taskName);
-      state.completedTasks.push(event.taskName);
+    }
+    case "task.queued": {
+      const task = updateTaskStateFromEvent(state, event);
+      pushTaskHistory(state, event, maxHistoryRows, getTaskDurationMs(task, event.timestamp));
+      break;
+    }
+    case "task.started": {
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId
+      });
+      state.currentTask = workflow.parentWorkflowId
+        ? `${workflow.name}/${event.taskName}`
+        : event.taskName;
+      state.activeTasks.add(state.currentTask);
+      const task = updateTaskStateFromEvent(state, event);
+      pushTaskHistory(state, event, maxHistoryRows, getTaskDurationMs(task, event.timestamp));
+      break;
+    }
+    case "task.completed": {
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId
+      });
+      const activeLabel = workflow.parentWorkflowId
+        ? `${workflow.name}/${event.taskName}`
+        : event.taskName;
+      state.activeTasks.delete(activeLabel);
+      state.completedTasks.push(activeLabel);
       state.completedTasks = state.completedTasks.slice(-5);
-      pushTaskHistory(state, event, maxHistoryRows);
+      const task = updateTaskStateFromEvent(state, event);
+      pushTaskHistory(state, event, maxHistoryRows, getTaskDurationMs(task, event.timestamp));
       break;
-    case "task.failed":
-      state.activeTasks.delete(event.taskName);
+    }
+    case "task.failed": {
+      const workflow = ensureWorkflowNode(state, {
+        workflowId: event.workflowId,
+        runId: event.runId
+      });
+      const activeLabel = workflow.parentWorkflowId
+        ? `${workflow.name}/${event.taskName}`
+        : event.taskName;
+      state.activeTasks.delete(activeLabel);
       state.lastFailure =
         failureReasonForEvent(event) !== undefined
           ? `${event.taskName}: ${failureReasonForEvent(event)}`
           : `${event.taskName} failed`;
       state.errorCount += 1;
-      pushTaskHistory(state, event, maxHistoryRows);
+      const task = updateTaskStateFromEvent(state, event);
+      pushTaskHistory(state, event, maxHistoryRows, getTaskDurationMs(task, event.timestamp));
       break;
-    case "task.retry_scheduled":
+    }
+    case "task.retry_scheduled": {
+      const task = updateTaskStateFromEvent(state, event);
       state.retryCount += 1;
-      pushTaskHistory(state, event, maxHistoryRows);
+      pushTaskHistory(state, event, maxHistoryRows, getTaskDurationMs(task, event.timestamp));
       break;
+    }
     case "memory.before_step":
     case "memory.after_step":
     case "retrieval.performed":
@@ -291,9 +724,6 @@ export function reduceExecutionEvent(
     case "memory.merge":
     case "memory.archive":
     case "memory.expire":
-      state.memoryWrites += 1;
-      pushMemoryTimelineEvent(state, event, maxTimelineRows);
-      break;
     case "memory.compress":
       state.memoryWrites += 1;
       pushMemoryTimelineEvent(state, event, maxTimelineRows);
@@ -385,7 +815,10 @@ export function buildDebugTimelineText(payload: Record<string, unknown>, timesta
   const url = typeof payload.url === "string" ? payload.url : undefined;
   const status = typeof payload.status === "number" ? ` ${payload.status}` : "";
   const durationMs = typeof payload.durationMs === "number" ? ` ${payload.durationMs}ms` : "";
-  const requestId = typeof payload.requestId === "string" && payload.requestId.length > 0 ? ` ${payload.requestId}` : "";
+  const requestId =
+    typeof payload.requestId === "string" && payload.requestId.length > 0
+      ? ` ${payload.requestId}`
+      : "";
   const error = typeof payload.error === "string" ? ` ${payload.error}` : "";
 
   return `${formatClock(timestamp)} [${badge}] ${provider} ${method} ${clipUrl(url)}${status}${durationMs}${requestId}${error}`.trim();
@@ -503,9 +936,9 @@ export function truncateText(value: string, width: number): string {
     return value;
   }
 
-  if (width <= 1) {
+  if (width <= 3) {
     return value.slice(0, width);
   }
 
-  return `${value.slice(0, width - 1)}…`;
+  return `${value.slice(0, width - 3)}...`;
 }

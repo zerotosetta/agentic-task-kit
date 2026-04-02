@@ -27,9 +27,9 @@ function createInkState(): RendererState {
     workflowId: "java-modernization",
     runId: "run_ink",
     summary: "java modernization start=analyze"
-  }, 10, 32, 64);
+  }, 10, 64, 128);
 
-  for (let index = 1; index <= 6; index += 1) {
+  for (let index = 1; index <= 8; index += 1) {
     reduceExecutionEvent(state, {
       type: "task.started",
       timestamp: Date.UTC(2026, 2, 29, 9, 0, index),
@@ -37,49 +37,121 @@ function createInkState(): RendererState {
       runId: "run_ink",
       taskName: `task-${index}`,
       summary: `history-item-${index}`
-    }, 10, 32, 64);
+    }, 10, 64, 128);
+
+    if (index < 8) {
+      reduceExecutionEvent(state, {
+        type: "task.completed",
+        timestamp: Date.UTC(2026, 2, 29, 9, 0, index) + 800,
+        workflowId: "java-modernization",
+        runId: "run_ink",
+        taskName: `task-${index}`,
+        summary: `history-item-${index}-done`,
+        status: "success"
+      }, 10, 64, 128);
+    }
   }
 
   reduceExecutionEvent(state, {
-    type: "retrieval.performed",
-    timestamp: Date.UTC(2026, 2, 29, 9, 1, 58),
+    type: "branch.started",
+    timestamp: Date.UTC(2026, 2, 29, 9, 0, 20),
     workflowId: "java-modernization",
     runId: "run_ink",
-    summary: "retrieve workflow",
+    branchId: "branch.refactor",
+    summary: "invoke child workflow",
     meta: {
-      routedShards: ["workflow", "task"],
-      hitCount: 2,
-      usedTokens: 48
+      subWorkflowKey: "child-refactor"
     }
-  }, 10, 32, 64);
+  }, 10, 64, 128);
+
   reduceExecutionEvent(state, {
-    type: "memory.compress",
-    timestamp: Date.UTC(2026, 2, 29, 9, 1, 59),
+    type: "workflow.started",
+    timestamp: Date.UTC(2026, 2, 29, 9, 0, 21),
+    workflowId: "child-refactor-aa11bb22",
+    runId: "run_child",
+    summary: "child refactor start=scan",
+    meta: {
+      parentWorkflowId: "java-modernization",
+      parentRunId: "run_ink",
+      branchId: "branch.refactor"
+    }
+  }, 10, 64, 128);
+
+  reduceExecutionEvent(state, {
+    type: "task.started",
+    timestamp: Date.UTC(2026, 2, 29, 9, 0, 22),
+    workflowId: "child-refactor-aa11bb22",
+    runId: "run_child",
+    taskName: "scan",
+    summary: "child-start",
+    meta: {
+      parentWorkflowId: "java-modernization",
+      parentRunId: "run_ink",
+      branchId: "branch.refactor"
+    }
+  }, 10, 64, 128);
+
+  reduceExecutionEvent(state, {
+    type: "task.completed",
+    timestamp: Date.UTC(2026, 2, 29, 9, 0, 24),
+    workflowId: "child-refactor-aa11bb22",
+    runId: "run_child",
+    taskName: "scan",
+    summary: "child-done",
+    status: "success",
+    meta: {
+      parentWorkflowId: "java-modernization",
+      parentRunId: "run_ink",
+      branchId: "branch.refactor"
+    }
+  }, 10, 64, 128);
+
+  reduceExecutionEvent(state, {
+    type: "workflow.completed",
+    timestamp: Date.UTC(2026, 2, 29, 9, 0, 25),
+    workflowId: "child-refactor-aa11bb22",
+    runId: "run_child",
+    summary: "child refactor completed",
+    status: "success",
+    meta: {
+      parentWorkflowId: "java-modernization",
+      parentRunId: "run_ink",
+      branchId: "branch.refactor"
+    }
+  }, 10, 64, 128);
+
+  reduceExecutionEvent(state, {
+    type: "branch.completed",
+    timestamp: Date.UTC(2026, 2, 29, 9, 0, 26),
     workflowId: "java-modernization",
     runId: "run_ink",
-    summary: "lifecycle compress",
+    branchId: "branch.refactor",
+    summary: "invoke child workflow",
+    status: "success",
     meta: {
-      compressedIds: ["memory.task.summary.compressed.demo"]
+      childWorkflowId: "child-refactor-aa11bb22",
+      childRunId: "run_child"
     }
-  }, 10, 32, 64);
+  }, 10, 64, 128);
 
   for (let index = 1; index <= 12; index += 1) {
     pushTaskLog(state, {
       timestamp: Date.UTC(2026, 2, 29, 9, 1, index),
       workflowId: "java-modernization",
       runId: "run_ink",
-      taskName: `task-${((index - 1) % 6) + 1}`,
+      taskName: `task-${((index - 1) % 8) + 1}`,
       level: index === 12 ? "success" : "info",
       message: `timeline-log-${index}`
-    }, 24, 64);
+    }, 24, 128);
   }
 
   pushDebugLogLine(
     state,
     `[cycle:http] {"phase":"request","provider":"gemini","method":"POST","url":"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions","requestId":"req_ink"}`,
     Date.UTC(2026, 2, 29, 9, 2, 0),
-    64
+    128
   );
+
   reduceExecutionEvent(state, {
     type: "retrieval.performed",
     timestamp: Date.UTC(2026, 2, 29, 9, 2, 1),
@@ -91,29 +163,19 @@ function createInkState(): RendererState {
       hitCount: 2,
       usedTokens: 48
     }
-  }, 10, 32, 64);
-  reduceExecutionEvent(state, {
-    type: "memory.compress",
-    timestamp: Date.UTC(2026, 2, 29, 9, 2, 2),
-    workflowId: "java-modernization",
-    runId: "run_ink",
-    summary: "lifecycle compress",
-    meta: {
-      compressedIds: ["memory.task.summary.compressed.demo"]
-    }
-  }, 10, 32, 64);
+  }, 10, 64, 128);
 
   return state;
 }
 
 describe("Ink renderer screen", () => {
-  it("renders workflow summary, task history, and debug timeline rows", async () => {
+  it("renders workflow flowchart, branch nesting, task durations, and logs", async () => {
     const state = createInkState();
     const instance = render(
       <InkRendererScreen
         state={state}
-        columns={100}
-        rows={14}
+        columns={110}
+        rows={20}
         finalStatus={undefined}
       />
     );
@@ -122,25 +184,28 @@ describe("Ink renderer screen", () => {
       await flushInk();
       const frame = instance.lastFrame();
 
-      expect(frame).toContain("Cycle Ink");
-      expect(frame).toContain("Workflow + History");
-      expect(frame).toContain("Logs (17)");
-      expect(frame).toContain("focus=right");
+      expect(frame).toContain("워크플로우 파이프라인 플로우차트");
+      expect(frame).toContain("워크플로우 task 실행 이력");
+      expect(frame).toContain("실행 로그");
+      expect(frame).toContain("java modernization [RUNNING");
+      expect(frame).toContain("┌────────────────┐");
+      expect(frame).toContain("DONE 800ms");
+      expect(frame).toContain("└─ branch.refactor");
+      expect(frame).toContain("child refactor [SUCCESS");
       expect(frame).toContain("[REQ] gemini POST");
       expect(frame).toContain("[MEM] retrieve");
-      expect(frame).toContain("follow=on");
     } finally {
       instance.unmount();
     }
   });
 
-  it("supports pane focus changes and scrolling with keyboard input", async () => {
+  it("supports bottom pane focus changes and scrolling with keyboard input", async () => {
     const state = createInkState();
     const instance = render(
       <InkRendererScreen
         state={state}
-        columns={100}
-        rows={14}
+        columns={110}
+        rows={18}
         finalStatus={undefined}
       />
     );
@@ -158,7 +223,7 @@ describe("Ink renderer screen", () => {
 
       instance.stdin.write("G");
       await flushInk();
-      expect(instance.lastFrame()).toContain("history-item-6");
+      expect(instance.lastFrame()).toContain("history-item-8");
 
       instance.stdin.write("\t");
       await flushInk();

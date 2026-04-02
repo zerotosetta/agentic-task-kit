@@ -15,6 +15,10 @@ export class ExecutionBroadcaster {
     this.observers.add(observer);
   }
 
+  removeObserver(observer: ExecutionObserver): void {
+    this.observers.delete(observer);
+  }
+
   listObservers(): ExecutionObserver[] {
     return [...this.observers];
   }

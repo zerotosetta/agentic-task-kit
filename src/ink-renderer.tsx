@@ -5,12 +5,16 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import {
   createInitialRendererState,
+  formatDuration,
+  getTaskDurationMs,
   levelWeight,
   pushDebugLogLine,
   pushTaskLog,
   reduceExecutionEvent,
   truncateText,
-  type RendererState
+  type RendererState,
+  type WorkflowRenderState,
+  type WorkflowTaskState
 } from "./renderer-model.js";
 import type {
   CLIRenderer,
@@ -51,18 +55,19 @@ type InkRendererScreenProps = {
 
 const DEFAULT_COLUMNS = 100;
 const DEFAULT_ROWS = 24;
-const LEFT_MIN_WIDTH = 32;
-const RIGHT_MIN_WIDTH = 48;
+const LEFT_MIN_WIDTH = 36;
+const RIGHT_MIN_WIDTH = 42;
 const HISTORY_BUFFER_SIZE = 240;
 const TIMELINE_BUFFER_SIZE = 480;
+const TASK_BOX_INNER_WIDTH = 16;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function computeColumns(columns: number): { leftWidth: number; rightWidth: number } {
+function computeBottomColumns(columns: number): { leftWidth: number; rightWidth: number } {
   const total = Math.max(columns, LEFT_MIN_WIDTH + RIGHT_MIN_WIDTH + 1);
-  const leftWidth = clamp(Math.floor(total * 0.4), LEFT_MIN_WIDTH, total - RIGHT_MIN_WIDTH - 1);
+  const leftWidth = clamp(Math.floor(total * 0.48), LEFT_MIN_WIDTH, total - RIGHT_MIN_WIDTH - 1);
   const rightWidth = total - leftWidth - 1;
   return {
     leftWidth,
@@ -75,30 +80,20 @@ function padLine(value: string, width: number): string {
   return clipped.length >= width ? clipped : clipped.padEnd(width, " ");
 }
 
-function buildSummaryLines(state: RendererState): string[] {
-  return [
-    `Workflow ${state.workflowId ?? "-"}`,
-    `Run      ${state.runId ?? "-"}`,
-    `Status   ${state.status ?? "running"}`,
-    `Current  ${state.currentTask ?? "-"}`,
-    `Active   ${[...state.activeTasks].join(", ") || "-"}`,
-    `Counts   art=${state.artifactCount} mem=${state.memoryWrites} retry=${state.retryCount} err=${state.errorCount}`,
-    `Failure  ${state.lastFailure ?? "-"}`
-  ];
-}
-
-function buildHeaderLine(state: RendererState, columns: number, focusedPane: InkPane): string {
-  const text = `Cycle Ink  workflow=${state.workflowId ?? "-"}  status=${state.status ?? "running"}  focus=${focusedPane}`;
+function buildHeaderLine(state: RendererState, columns: number): string {
+  const text =
+    `Cycle Ink  workflow=${state.workflowId ?? "-"}  status=${state.status ?? "running"}  current=${state.currentTask ?? "-"}  ` +
+    `art=${state.artifactCount} mem=${state.memoryWrites} retry=${state.retryCount} err=${state.errorCount}`;
   return padLine(text, columns);
 }
 
 function buildFooterLine(columns: number, focusedPane: InkPane, rightAutoFollow: boolean): string {
   const text =
-    `Tab pane  ↑↓/jk scroll  PgUp/PgDn page  Home/End,g/G edge  focus=${focusedPane}  follow=${rightAutoFollow ? "on" : "off"}`;
+    `Tab pane  up/down,j/k scroll  PgUp/PgDn page  Home/End,g/G edge  focus=${focusedPane}  follow=${rightAutoFollow ? "on" : "off"}`;
   return padLine(text, columns);
 }
 
-function withTitle(title: string, width: number, focused: boolean): string {
+function withTitle(title: string, width: number, focused = false): string {
   return padLine(`${focused ? ">" : " "} ${title}`, width);
 }
 
@@ -112,6 +107,197 @@ function visibleWindow(lines: string[], start: number, size: number): string[] {
 
 function maxScroll(lineCount: number, viewportSize: number): number {
   return Math.max(0, lineCount - viewportSize);
+}
+
+function taskStatusLabel(task: WorkflowTaskState): string {
+  switch (task.status) {
+    case "queued":
+      return "QUE";
+    case "running":
+      return "RUN";
+    case "completed":
+      return "DONE";
+    case "failed":
+      return "FAIL";
+    case "retry":
+      return "RETRY";
+  }
+}
+
+function workflowStatusLabel(status: WorkflowRenderState["status"]): string {
+  switch (status) {
+    case "success":
+      return "SUCCESS";
+    case "fail":
+      return "FAIL";
+    default:
+      return "RUNNING";
+  }
+}
+
+function buildTaskBox(task: WorkflowTaskState, now: number): string[] {
+  const duration = formatDuration(getTaskDurationMs(task, now));
+  const top = `┌${"─".repeat(TASK_BOX_INNER_WIDTH)}┐`;
+  const name = `│${padLine(task.taskName, TASK_BOX_INNER_WIDTH)}│`;
+  const detail = `│${padLine(`${taskStatusLabel(task)} ${duration}`, TASK_BOX_INNER_WIDTH)}│`;
+  const bottom = `└${"─".repeat(TASK_BOX_INNER_WIDTH)}┘`;
+  return [top, name, detail, bottom];
+}
+
+function groupTasksForWidth(
+  tasks: WorkflowTaskState[],
+  width: number,
+  indent: number
+): WorkflowTaskState[][] {
+  const groups: WorkflowTaskState[][] = [];
+  const boxWidth = TASK_BOX_INNER_WIDTH + 2;
+  const gapWidth = 3;
+  const availableWidth = Math.max(boxWidth, width - indent);
+  let current: WorkflowTaskState[] = [];
+  let consumed = 0;
+
+  for (const task of tasks) {
+    const nextWidth = current.length === 0 ? boxWidth : boxWidth + gapWidth;
+    if (current.length > 0 && consumed + nextWidth > availableWidth) {
+      groups.push(current);
+      current = [task];
+      consumed = boxWidth;
+      continue;
+    }
+
+    current.push(task);
+    consumed += nextWidth;
+  }
+
+  if (current.length > 0) {
+    groups.push(current);
+  }
+
+  return groups;
+}
+
+function renderTaskGroups(
+  tasks: WorkflowTaskState[],
+  width: number,
+  indent: number,
+  now: number
+): string[] {
+  if (tasks.length === 0) {
+    const idleTask: WorkflowTaskState = {
+      taskName: "waiting",
+      status: "queued",
+      updatedAt: now
+    };
+    tasks = [idleTask];
+  }
+
+  const groups = groupTasksForWidth(tasks, width, indent);
+  const lines: string[] = [];
+  const prefix = " ".repeat(indent);
+  const connector = ["   ", "   ", "──▶", "   "];
+
+  for (const group of groups) {
+    const rendered = group.map((task) => buildTaskBox(task, now));
+    for (let row = 0; row < 4; row += 1) {
+      let line = prefix;
+      for (let index = 0; index < rendered.length; index += 1) {
+        line += rendered[index]?.[row] ?? "";
+        if (index < rendered.length - 1) {
+          line += connector[row] ?? "   ";
+        }
+      }
+      lines.push(padLine(line, width));
+    }
+  }
+
+  return lines;
+}
+
+function workflowDurationMs(workflow: WorkflowRenderState, now: number): number | undefined {
+  if (workflow.startedAt === undefined) {
+    return undefined;
+  }
+
+  const endedAt = workflow.completedAt ?? workflow.updatedAt ?? now;
+  return Math.max(0, endedAt - workflow.startedAt);
+}
+
+function renderWorkflowBranchLines(
+  state: RendererState,
+  workflowId: string,
+  width: number,
+  depth: number,
+  branchLabel?: string
+): string[] {
+  const workflow = state.workflows.get(workflowId);
+  if (!workflow) {
+    return [];
+  }
+
+  const now = state.updatedAt ?? Date.now();
+  const indent = depth * 4;
+  const lines: string[] = [];
+  const headerPrefix = " ".repeat(indent);
+  const workflowLabel =
+    `${workflow.name} [${workflowStatusLabel(workflow.status)} ${formatDuration(workflowDurationMs(workflow, now))}]`;
+
+  if (branchLabel) {
+    lines.push(padLine(`${headerPrefix}${branchLabel}`, width));
+  }
+
+  lines.push(padLine(`${headerPrefix}${workflowLabel}`, width));
+
+  const orderedTasks = workflow.taskOrder
+    .map((taskName) => workflow.tasks.get(taskName))
+    .filter((task): task is WorkflowTaskState => task !== undefined);
+  lines.push(...renderTaskGroups(orderedTasks, width, indent, now));
+
+  for (const branchId of workflow.branchOrder) {
+    const branch = workflow.branches.get(branchId);
+    if (!branch) {
+      continue;
+    }
+
+    const branchSummary = `${headerPrefix}└─ ${branch.branchId} [${branch.status.toUpperCase()}] ${branch.summary}`;
+    if (branch.childWorkflowId) {
+      lines.push(
+        ...renderWorkflowBranchLines(
+          state,
+          branch.childWorkflowId,
+          width,
+          depth + 1,
+          branchSummary
+        )
+      );
+    } else {
+      lines.push(padLine(branchSummary, width));
+      lines.push(padLine(`${" ".repeat((depth + 1) * 4)}(sub workflow pending)`, width));
+    }
+  }
+
+  return lines;
+}
+
+function buildFlowchartLines(state: RendererState, width: number): string[] {
+  const rootWorkflowIds = state.workflowOrder.filter((workflowId) => {
+    const workflow = state.workflows.get(workflowId);
+    return workflow && !workflow.parentWorkflowId;
+  });
+
+  if (rootWorkflowIds.length === 0 && state.workflowId) {
+    rootWorkflowIds.push(state.workflowId);
+  }
+
+  if (rootWorkflowIds.length === 0) {
+    return [padLine("workflow events are waiting...", width)];
+  }
+
+  const lines: string[] = [];
+  for (const workflowId of rootWorkflowIds) {
+    lines.push(...renderWorkflowBranchLines(state, workflowId, width, 0));
+  }
+
+  return lines;
 }
 
 export function reduceInkUIState(
@@ -149,7 +335,9 @@ export function reduceInkUIState(
       return next;
     case "sync":
       next.leftScroll = clamp(next.leftScroll, 0, action.leftMaxScroll);
-      next.rightScroll = next.rightAutoFollow ? action.rightMaxScroll : clamp(next.rightScroll, 0, action.rightMaxScroll);
+      next.rightScroll = next.rightAutoFollow
+        ? action.rightMaxScroll
+        : clamp(next.rightScroll, 0, action.rightMaxScroll);
       next.rightAutoFollow = next.rightScroll >= action.rightMaxScroll;
       return next;
   }
@@ -168,27 +356,32 @@ export function InkRendererScreen({
     rightAutoFollow: true
   });
 
-  const { leftWidth, rightWidth } = computeColumns(columns);
-  const usableRows = Math.max(rows, 12);
-  const bodyHeight = Math.max(usableRows - 2, 8);
-  const leftSummaryLines = buildSummaryLines(state).map((line) => padLine(line, leftWidth));
-  const leftHistoryViewport = Math.max(bodyHeight - leftSummaryLines.length - 1, 1);
-  const rightViewport = Math.max(bodyHeight - 1, 1);
-  const leftHistoryLines = state.taskHistory.map((row) => padLine(row.text, leftWidth));
+  const { leftWidth, rightWidth } = computeBottomColumns(columns);
+  const usableRows = Math.max(rows, 16);
+  const footerRows = finalStatus ? 3 : 2;
+  const contentRows = Math.max(usableRows - footerRows, 10);
+  const flowchartLines = buildFlowchartLines(state, columns);
+  const flowchartViewport = clamp(flowchartLines.length, 6, Math.max(6, contentRows - 6));
+  const bottomViewport = Math.max(4, contentRows - flowchartViewport - 2);
+  const leftLines = state.taskHistory.map((row) => padLine(row.text, leftWidth));
   const rightLines = state.timeline.map((row) => padLine(row.text, rightWidth));
   const metrics = {
-    leftMaxScroll: maxScroll(leftHistoryLines.length, leftHistoryViewport),
-    rightMaxScroll: maxScroll(rightLines.length, rightViewport),
-    pageSize: Math.max(1, Math.min(leftHistoryViewport, rightViewport) - 1)
+    leftMaxScroll: maxScroll(leftLines.length, bottomViewport),
+    rightMaxScroll: maxScroll(rightLines.length, bottomViewport),
+    pageSize: Math.max(1, bottomViewport - 1)
   };
 
   useEffect(() => {
     setUiState((current) =>
-      reduceInkUIState(current, {
-        type: "sync",
-        leftMaxScroll: metrics.leftMaxScroll,
-        rightMaxScroll: metrics.rightMaxScroll
-      }, metrics)
+      reduceInkUIState(
+        current,
+        {
+          type: "sync",
+          leftMaxScroll: metrics.leftMaxScroll,
+          rightMaxScroll: metrics.rightMaxScroll
+        },
+        metrics
+      )
     );
   }, [metrics.leftMaxScroll, metrics.rightMaxScroll, metrics.pageSize]);
 
@@ -228,37 +421,41 @@ export function InkRendererScreen({
     }
   });
 
-  const leftPanelLines = [
-    withTitle(`Workflow + History (${state.taskHistory.length})`, leftWidth, uiState.focusedPane === "left"),
-    ...leftSummaryLines,
-    ...visibleWindow(leftHistoryLines, uiState.leftScroll, leftHistoryViewport)
+  const topPanelLines = [
+    withTitle("워크플로우 파이프라인 플로우차트", columns),
+    ...visibleWindow(flowchartLines, 0, flowchartViewport)
   ];
-  while (leftPanelLines.length < bodyHeight) {
-    leftPanelLines.push(" ".repeat(leftWidth));
+  while (topPanelLines.length < flowchartViewport + 1) {
+    topPanelLines.push(" ".repeat(columns));
   }
 
-  const rightPanelLines = [
-    withTitle(
-      `Logs (${state.timeline.length}) follow=${uiState.rightAutoFollow ? "on" : "off"}`,
-      rightWidth,
-      uiState.focusedPane === "right"
-    ),
-    ...visibleWindow(rightLines, uiState.rightScroll, rightViewport)
-  ];
-  while (rightPanelLines.length < bodyHeight) {
+  const bottomTitleLine =
+    `${withTitle("워크플로우 task 실행 이력", leftWidth, uiState.focusedPane === "left")}│` +
+    `${withTitle(`실행 로그 (${state.timeline.length})`, rightWidth, uiState.focusedPane === "right")}`;
+
+  const leftPanelLines = visibleWindow(leftLines, uiState.leftScroll, bottomViewport);
+  const rightPanelLines = visibleWindow(rightLines, uiState.rightScroll, bottomViewport);
+  while (leftPanelLines.length < bottomViewport) {
+    leftPanelLines.push(" ".repeat(leftWidth));
+  }
+  while (rightPanelLines.length < bottomViewport) {
     rightPanelLines.push(" ".repeat(rightWidth));
   }
 
-  const mergedBodyLines: string[] = [];
-  for (let index = 0; index < bodyHeight; index += 1) {
-    mergedBodyLines.push(`${leftPanelLines[index] ?? " ".repeat(leftWidth)}│${rightPanelLines[index] ?? " ".repeat(rightWidth)}`);
+  const mergedBottomLines: string[] = [];
+  for (let index = 0; index < bottomViewport; index += 1) {
+    mergedBottomLines.push(`${leftPanelLines[index] ?? " ".repeat(leftWidth)}│${rightPanelLines[index] ?? " ".repeat(rightWidth)}`);
   }
 
   return (
     <>
-      <Text>{buildHeaderLine(state, columns, uiState.focusedPane)}</Text>
-      {mergedBodyLines.map((line, index) => (
-        <Text key={`body-${index}`}>{line}</Text>
+      <Text>{buildHeaderLine(state, columns)}</Text>
+      {topPanelLines.map((line, index) => (
+        <Text key={`top-${index}`}>{line}</Text>
+      ))}
+      <Text>{bottomTitleLine}</Text>
+      {mergedBottomLines.map((line, index) => (
+        <Text key={`bottom-${index}`}>{line}</Text>
       ))}
       <Text>{buildFooterLine(columns, uiState.focusedPane, uiState.rightAutoFollow)}</Text>
       {finalStatus ? <Text>{padLine(`Final status: ${finalStatus}`, columns)}</Text> : null}
@@ -267,7 +464,7 @@ export function InkRendererScreen({
 }
 
 type InkRendererResolvedOptions = Required<
-  Pick<CLIRendererOptions, "enabled" | "refreshMs" | "maxRecentEvents" | "maxRecentLogs"> &
+  Pick<CLIRendererOptions, "enabled" | "refreshMs" | "maxRecentEvents" | "maxRecentLogs" | "persistAfterCompletion"> &
     Pick<CLIRendererOptions, "mode" | "logLevel">
 > & {
   stream: NodeJS.WriteStream;
@@ -287,6 +484,13 @@ export class InkCLIRenderer implements CLIRenderer {
   private inkInstance: ReturnType<typeof render> | null = null;
   private debugLineReader: ReadLineInterface | null = null;
   private resizeHandler: (() => void) | null = null;
+  private readonly processSignalHandler = (): void => {
+    this.shutdown({
+      writeSummary: false,
+      exitProcess: true,
+      exitCode: 0
+    });
+  };
 
   constructor(options: CLIRendererOptions = {}) {
     this.options = {
@@ -295,6 +499,7 @@ export class InkCLIRenderer implements CLIRenderer {
       refreshMs: options.refreshMs ?? 100,
       maxRecentEvents: Math.max(options.maxRecentEvents ?? 5, 8),
       maxRecentLogs: Math.max(options.maxRecentLogs ?? 5, 8),
+      persistAfterCompletion: options.persistAfterCompletion ?? true,
       logLevel: options.logLevel ?? "info",
       stream: options.stream ?? process.stdout,
       errorStream: options.errorStream ?? process.stderr,
@@ -320,6 +525,7 @@ export class InkCLIRenderer implements CLIRenderer {
     this.enterAlternateScreen();
     this.attachResizeHandler();
     this.attachDebugStream();
+    this.attachProcessSignalHandlers();
     this.renderNow();
   }
 
@@ -329,6 +535,33 @@ export class InkCLIRenderer implements CLIRenderer {
     }
 
     this.finalStatus.value = finalStatus;
+    this.renderNow();
+
+    if (this.options.persistAfterCompletion) {
+      return;
+    }
+
+    this.close();
+  }
+
+  close(): void {
+    this.shutdown({
+      writeSummary: true
+    });
+  }
+
+  private shutdown(args: {
+    writeSummary: boolean;
+    exitProcess?: boolean;
+    exitCode?: number;
+  }): void {
+    if (!this.started) {
+      if (args.exitProcess) {
+        process.exit(args.exitCode ?? 0);
+      }
+      return;
+    }
+
     if (this.pendingRender) {
       clearTimeout(this.pendingRender);
       this.pendingRender = null;
@@ -342,11 +575,19 @@ export class InkCLIRenderer implements CLIRenderer {
       this.resizeHandler = null;
     }
 
+    this.detachProcessSignalHandlers();
     this.inkInstance?.unmount();
     this.inkInstance = null;
     this.leaveAlternateScreen();
-    this.writeFinalSummary();
     this.started = false;
+
+    if (args.writeSummary) {
+      this.writeFinalSummary();
+    }
+
+    if (args.exitProcess) {
+      process.exit(args.exitCode ?? 0);
+    }
   }
 
   resize(width: number, height: number): void {
@@ -357,6 +598,9 @@ export class InkCLIRenderer implements CLIRenderer {
 
   onEvent(event: ExecutionEvent): void {
     this.start();
+    if (event.type === "workflow.started") {
+      this.finalStatus.value = undefined;
+    }
     reduceExecutionEvent(
       this.state,
       event,
@@ -455,9 +699,19 @@ export class InkCLIRenderer implements CLIRenderer {
       stdout: this.options.stream,
       stderr: this.options.errorStream,
       stdin: process.stdin,
-      exitOnCtrlC: true,
+      exitOnCtrlC: false,
       patchConsole: true
     });
+  }
+
+  private attachProcessSignalHandlers(): void {
+    process.on("SIGINT", this.processSignalHandler);
+    process.on("SIGTERM", this.processSignalHandler);
+  }
+
+  private detachProcessSignalHandlers(): void {
+    process.off("SIGINT", this.processSignalHandler);
+    process.off("SIGTERM", this.processSignalHandler);
   }
 
   private enterAlternateScreen(): void {

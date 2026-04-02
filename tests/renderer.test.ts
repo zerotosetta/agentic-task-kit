@@ -207,4 +207,108 @@ describe("CLI renderer", () => {
       }
     }
   });
+
+  it("keeps Ink terminal state after stop until close is called", () => {
+    const ttyLike = stream as unknown as NodeJS.WriteStream & {
+      isTTY?: boolean;
+      columns?: number;
+      rows?: number;
+      on?: (event: string, listener: (...args: unknown[]) => void) => void;
+      off?: (event: string, listener: (...args: unknown[]) => void) => void;
+    };
+    ttyLike.isTTY = true;
+    ttyLike.columns = 100;
+    ttyLike.rows = 30;
+    ttyLike.on = ((..._args: unknown[]) => ttyLike) as typeof ttyLike.on;
+    ttyLike.off = ((..._args: unknown[]) => ttyLike) as typeof ttyLike.off;
+
+    const renderer = new InkCLIRenderer({
+      enabled: true,
+      mode: "ink",
+      persistAfterCompletion: true,
+      stream: ttyLike,
+      errorStream: ttyLike
+    }) as InkCLIRenderer & Record<string, unknown>;
+
+    let leaveCalls = 0;
+    let summaryCalls = 0;
+
+    renderer["attachResizeHandler"] = () => undefined;
+    renderer["attachDebugStream"] = () => undefined;
+    renderer["renderNow"] = () => undefined;
+    renderer["enterAlternateScreen"] = () => undefined;
+    renderer["leaveAlternateScreen"] = () => {
+      leaveCalls += 1;
+    };
+    renderer["writeFinalSummary"] = () => {
+      summaryCalls += 1;
+    };
+
+    renderer.start();
+    renderer.stop("success");
+
+    expect(leaveCalls).toBe(0);
+    expect(summaryCalls).toBe(0);
+
+    renderer.close();
+
+    expect(leaveCalls).toBe(1);
+    expect(summaryCalls).toBe(1);
+  });
+
+  it("handles Ctrl+C by closing Ink silently and exiting the process", () => {
+    const ttyLike = stream as unknown as NodeJS.WriteStream & {
+      isTTY?: boolean;
+      columns?: number;
+      rows?: number;
+      on?: typeof stream.on;
+      off?: typeof stream.off;
+    };
+    ttyLike.isTTY = true;
+    ttyLike.columns = 100;
+    ttyLike.rows = 30;
+    ttyLike.on = ((..._args: Parameters<typeof stream.on>) => ttyLike) as typeof ttyLike.on;
+    ttyLike.off = ((..._args: Parameters<typeof stream.off>) => ttyLike) as typeof ttyLike.off;
+
+    const renderer = new InkCLIRenderer({
+      enabled: true,
+      mode: "ink",
+      persistAfterCompletion: true,
+      stream: ttyLike,
+      errorStream: ttyLike
+    }) as InkCLIRenderer & Record<string, unknown>;
+
+    let leaveCalls = 0;
+    let summaryCalls = 0;
+    let exitCode: number | undefined;
+
+    renderer["attachResizeHandler"] = () => undefined;
+    renderer["attachDebugStream"] = () => undefined;
+    renderer["renderNow"] = () => undefined;
+    renderer["enterAlternateScreen"] = () => undefined;
+    renderer["leaveAlternateScreen"] = () => {
+      leaveCalls += 1;
+    };
+    renderer["writeFinalSummary"] = () => {
+      summaryCalls += 1;
+    };
+
+    const originalExit = process.exit;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      return undefined as never;
+    }) as typeof process.exit;
+
+    try {
+      renderer.start();
+      const signalHandler = renderer["processSignalHandler"] as (() => void) | undefined;
+      signalHandler?.();
+    } finally {
+      process.exit = originalExit;
+    }
+
+    expect(leaveCalls).toBe(1);
+    expect(summaryCalls).toBe(0);
+    expect(exitCode).toBe(0);
+  });
 });

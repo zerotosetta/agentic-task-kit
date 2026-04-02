@@ -75,6 +75,10 @@ class DefaultCLIRenderer implements CLIRenderer {
     this.started = false;
   }
 
+  close(): void {
+    this.stop();
+  }
+
   resize(): void {
     if (this.resolvedMode === "compact") {
       this.scheduleRender();

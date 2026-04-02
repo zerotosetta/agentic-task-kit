@@ -258,6 +258,10 @@ export type Artifact = {
   meta?: Record<string, unknown>;
 };
 
+export type RunArtifact = Artifact & {
+  bytes: Uint8Array;
+};
+
 export type AIChatMessageRole = "developer" | "system" | "user" | "assistant";
 
 export type AISessionMessage = {
@@ -482,9 +486,22 @@ export interface TaskLogger {
   emit(event: TaskLogEvent): void;
 }
 
+export type ExecutionHistorySnapshot = {
+  events: ExecutionEvent[];
+  taskLogs: TaskLogEvent[];
+  updatedAt?: number;
+};
+
+export interface ExecutionHistoryTracker extends ExecutionObserver {
+  snapshot(): ExecutionHistorySnapshot;
+  subscribe(listener: (snapshot: ExecutionHistorySnapshot) => void): () => void;
+  reset(): void;
+}
+
 export type CLIRendererOptions = {
   enabled?: boolean;
   mode?: "off" | "line" | "compact" | "ink" | "dashboard" | "jsonl" | "plain";
+  persistAfterCompletion?: boolean;
   stream?: NodeJS.WriteStream;
   errorStream?: NodeJS.WriteStream;
   debugLogStream?: NodeJS.ReadableStream;
@@ -500,6 +517,7 @@ export type CLIRendererOptions = {
 export interface CLIRenderer extends ExecutionObserver {
   start(): void;
   stop(finalStatus?: "success" | "fail"): void;
+  close(): void;
   resize?(width: number, height: number): void;
 }
 
@@ -558,6 +576,11 @@ export interface WorkflowContext {
   artifacts: ArtifactStore;
   log: TaskLogger;
   now: () => number;
+  runSubWorkflow(
+    key: string,
+    input: WorkflowInput,
+    options?: SubWorkflowRunOptions
+  ): Promise<CycleRunResult>;
 }
 
 export type RunOptions = {
@@ -567,9 +590,32 @@ export type RunOptions = {
   observers?: ExecutionObserver[];
 };
 
+export type SubWorkflowRunOptions = Omit<RunOptions, "observers"> & {
+  branchId?: string;
+  summary?: string;
+};
+
+export type CycleRunMemorySnapshot = {
+  records: MemoryRecord[];
+  activeRecords: MemoryRecord[];
+  archivedRecords: MemoryRecord[];
+  lifecycle: LifecycleReport;
+};
+
+export type CycleRunArtifactSnapshot = {
+  artifacts: RunArtifact[];
+};
+
+export type CycleRunResult = {
+  frame: ExecutionFrame;
+  memory: CycleRunMemorySnapshot;
+  artifacts: CycleRunArtifactSnapshot;
+  history: ExecutionHistorySnapshot;
+};
+
 export interface Cycle {
   register(key: string, workflow: WorkflowDefinition): void;
-  run(key: string, input: WorkflowInput, options?: RunOptions): Promise<{ frame: ExecutionFrame }>;
+  run(key: string, input: WorkflowInput, options?: RunOptions): Promise<CycleRunResult>;
 }
 
 export type CycleOptions = {
