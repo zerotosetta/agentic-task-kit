@@ -14,6 +14,8 @@ npm install
 ```
 
 ## 실행
+모든 `start*` 스크립트는 실행 전에 라이브러리 build 를 자동으로 갱신한다.
+
 기본 설정 파일 사용:
 ```bash
 OPENAI_API_KEY=your_key_here npm run start
