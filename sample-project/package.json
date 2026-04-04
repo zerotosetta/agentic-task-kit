@@ -6,14 +6,13 @@
   "scripts": {
     "build:library": "npm --prefix .. run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prestart": "npm run build:library",
-    "start": "tsx ./src/main.ts",
-    "start:line": "CYCLE_LIVE=0 tsx ./src/main.ts",
-    "start:ink": "CYCLE_RENDER_MODE=ink tsx ./src/main.ts",
-    "start:stream": "tsx ./src/main-stream.ts",
-    "start:sub": "tsx ./src/main-sub-workflow.ts",
-    "start:sub:line": "CYCLE_LIVE=0 tsx ./src/main-sub-workflow.ts",
-    "start:sub:ink": "cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts"
+    "start": "npm run build:library && tsx ./src/main.ts",
+    "start:line": "npm run build:library && CYCLE_LIVE=0 tsx ./src/main.ts",
+    "start:ink": "npm run build:library && CYCLE_RENDER_MODE=ink tsx ./src/main.ts",
+    "start:stream": "npm run build:library && tsx ./src/main-stream.ts",
+    "start:sub": "npm run build:library && tsx ./src/main-sub-workflow.ts",
+    "start:sub:line": "npm run build:library && CYCLE_LIVE=0 tsx ./src/main-sub-workflow.ts",
+    "start:sub:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts"
   },
   "dependencies": {
     "agentic-task-kit": "file:..",
