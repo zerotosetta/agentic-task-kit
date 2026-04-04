@@ -287,6 +287,7 @@ export type AIHTTPRequestOptions = {
   headers?: AIHTTPHeaders;
   timeoutMs?: number;
   maxRetries?: number;
+  signal?: AbortSignal;
 };
 
 export type AIHTTPDebugLoggingOptions = {
@@ -486,6 +487,18 @@ export interface TaskLogger {
   emit(event: TaskLogEvent): void;
 }
 
+export interface WorkflowCancellation {
+  signal: AbortSignal;
+  reason: unknown;
+  isCancellationRequested(): boolean;
+  throwIfRequested(): void;
+}
+
+export interface WorkflowRuntimeController {
+  hasActiveRuns(): boolean;
+  cancelActiveRuns(reason?: string): Promise<number>;
+}
+
 export type ExecutionHistorySnapshot = {
   events: ExecutionEvent[];
   taskLogs: TaskLogEvent[];
@@ -512,6 +525,7 @@ export type CLIRendererOptions = {
   maxRecentLogs?: number;
   logLevel?: TaskLogLevel;
   width?: number;
+  workflowController?: WorkflowRuntimeController;
 };
 
 export interface CLIRenderer extends ExecutionObserver {
@@ -575,6 +589,7 @@ export interface WorkflowContext {
   memoryContext?: StepMemoryContext;
   artifacts: ArtifactStore;
   log: TaskLogger;
+  cancellation: WorkflowCancellation;
   now: () => number;
   runSubWorkflow(
     key: string,
@@ -613,7 +628,7 @@ export type CycleRunResult = {
   history: ExecutionHistorySnapshot;
 };
 
-export interface Cycle {
+export interface Cycle extends WorkflowRuntimeController {
   register(key: string, workflow: WorkflowDefinition): void;
   run(key: string, input: WorkflowInput, options?: RunOptions): Promise<CycleRunResult>;
 }

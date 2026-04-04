@@ -637,6 +637,7 @@ function buildRequestOptions(request: AIChatRequest) {
     timeout?: number;
     maxRetries?: number;
     defaultBaseURL?: string;
+    signal?: AbortSignal;
   } = {};
 
   if (request.http?.headers !== undefined) {
@@ -653,6 +654,10 @@ function buildRequestOptions(request: AIChatRequest) {
 
   if (request.http?.baseURL !== undefined) {
     requestOptions.defaultBaseURL = request.http.baseURL;
+  }
+
+  if (request.http?.signal !== undefined) {
+    requestOptions.signal = request.http.signal;
   }
 
   return requestOptions;

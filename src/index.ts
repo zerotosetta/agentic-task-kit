@@ -1,6 +1,11 @@
 export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
-export { AIProviderRequestError } from "./errors.js";
+export {
+  AIProviderRequestError,
+  WorkflowCancellationError,
+  isWorkflowCancellationError,
+  toWorkflowCancellationError
+} from "./errors.js";
 export { ExecutionBroadcaster } from "./events.js";
 export { createExecutionHistoryTracker } from "./history.js";
 export { createTaskLogger } from "./logging.js";
@@ -13,6 +18,7 @@ export {
   InMemoryVectorStore
 } from "./memory.js";
 export { InMemoryArtifactStore, createObservedArtifactStore } from "./artifacts.js";
+export { getGlobalWorkflowRuntimeController } from "./runtime-control.js";
 export {
   createOpenAICompatibleChatProviderFromConfigFile,
   loadOpenAICompatibleChatProviderOptionsFromConfigFile,
@@ -111,6 +117,8 @@ export type {
   TaskStatus,
   Transition,
   WorkflowContext,
+  WorkflowCancellation,
+  WorkflowRuntimeController,
   WorkflowInput,
   WorkflowDefinition
 } from "./types.js";

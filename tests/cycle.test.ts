@@ -137,6 +137,89 @@ describe("Cycle foundation MVP", () => {
     );
   });
 
+  it("cancels active workflows and propagates abort signals into ctx.ai.chat()", async () => {
+    let observedSignal: AbortSignal | undefined;
+
+    class BlockingAITask extends Task {
+      name = "blockingAI";
+      memoryPhase = "EXECUTION" as const;
+      memoryTaskType = "workflow" as const;
+
+      async run(ctx: WorkflowContext): Promise<TaskResult> {
+        await ctx.ai.chat({
+          messages: [
+            {
+              role: "user",
+              content: "Block until cancellation."
+            }
+          ]
+        });
+
+        return {
+          status: "success"
+        };
+      }
+    }
+
+    const BlockingWorkflow: WorkflowDefinition = {
+      name: "blocking-workflow",
+      start: "blockingAI",
+      end: "end",
+      tasks: {
+        blockingAI: new BlockingAITask()
+      },
+      transitions: {
+        blockingAI: {
+          success: "end",
+          fail: "end"
+        }
+      }
+    };
+
+    const cycle = createCycle({
+      aiProvider: {
+        provider: "mock-ai",
+        defaultChatModel: "mock-model",
+        async chat(request) {
+          observedSignal = request.http?.signal;
+          return await new Promise((_resolve, reject) => {
+            request.http?.signal?.addEventListener(
+              "abort",
+              () => {
+                reject(request.http?.signal?.reason);
+              },
+              { once: true }
+            );
+          });
+        },
+        async chatStream() {
+          throw new Error("chatStream should not be used in this test");
+        }
+      }
+    });
+    cycle.register("blocking-workflow", BlockingWorkflow);
+
+    const runPromise = cycle.run("blocking-workflow", createWorkflowInput());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(cycle.hasActiveRuns()).toBe(true);
+
+    const cancelled = await cycle.cancelActiveRuns("Workflow cancelled by Ctrl+C.");
+    const result = await runPromise;
+
+    expect(cancelled).toBe(1);
+    expect(observedSignal?.aborted).toBe(true);
+    expect(result.frame.status).toBe("fail");
+    expect(result.frame.errors).toContain("Workflow cancelled by Ctrl+C.");
+    expect(result.frame.taskResults.blockingAI?.error).toEqual(
+      expect.objectContaining({
+        message: "Workflow cancelled by Ctrl+C.",
+        code: "ABORTED"
+      })
+    );
+    expect(cycle.hasActiveRuns()).toBe(false);
+  });
+
   it("applies automatic memory hooks and bootstraps memoryInjection plus rag records", async () => {
     class CaptureUserContextTask extends Task {
       name = "captureUser";

@@ -3,6 +3,7 @@ import { createInterface, type Interface as ReadLineInterface } from "node:readl
 import { render, Text, useInput } from "ink";
 import { useEffect, useState, type ReactElement } from "react";
 
+import { getGlobalWorkflowRuntimeController } from "./runtime-control.js";
 import {
   createInitialRendererState,
   formatDuration,
@@ -469,6 +470,7 @@ type InkRendererResolvedOptions = Required<
 > & {
   stream: NodeJS.WriteStream;
   errorStream: NodeJS.WriteStream;
+  workflowController: NonNullable<CLIRendererOptions["workflowController"]>;
   debugLogStream?: NodeJS.ReadableStream;
 };
 
@@ -484,7 +486,13 @@ export class InkCLIRenderer implements CLIRenderer {
   private inkInstance: ReturnType<typeof render> | null = null;
   private debugLineReader: ReadLineInterface | null = null;
   private resizeHandler: (() => void) | null = null;
+  private interruptCancellationRequested = false;
   private readonly processSignalHandler = (): void => {
+    if (this.options.workflowController.hasActiveRuns()) {
+      this.requestWorkflowCancellation();
+      return;
+    }
+
     this.shutdown({
       writeSummary: false,
       exitProcess: true,
@@ -503,6 +511,7 @@ export class InkCLIRenderer implements CLIRenderer {
       logLevel: options.logLevel ?? "info",
       stream: options.stream ?? process.stdout,
       errorStream: options.errorStream ?? process.stderr,
+      workflowController: options.workflowController ?? getGlobalWorkflowRuntimeController(),
       ...(options.debugLogStream ? { debugLogStream: options.debugLogStream } : {})
     };
     this.columns = {
@@ -667,6 +676,35 @@ export class InkCLIRenderer implements CLIRenderer {
       );
       this.scheduleRender();
     });
+  }
+
+  private requestWorkflowCancellation(): void {
+    if (this.interruptCancellationRequested) {
+      return;
+    }
+
+    this.interruptCancellationRequested = true;
+    pushDebugLogLine(
+      this.state,
+      "[cycle:signal] Ctrl+C received, cancelling active workflow...",
+      Date.now(),
+      TIMELINE_BUFFER_SIZE
+    );
+    this.scheduleRender();
+
+    Promise.resolve(this.options.workflowController.cancelActiveRuns("Workflow cancelled by Ctrl+C."))
+      .catch((error) => {
+        pushDebugLogLine(
+          this.state,
+          `[cycle:signal] cancellation request failed: ${error instanceof Error ? error.message : String(error)}`,
+          Date.now(),
+          TIMELINE_BUFFER_SIZE
+        );
+      })
+      .finally(() => {
+        this.interruptCancellationRequested = false;
+        this.scheduleRender();
+      });
   }
 
   private scheduleRender(): void {

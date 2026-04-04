@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { createUnavailableAIProvider } from "./ai.js";
 import { createObservedArtifactStore, InMemoryArtifactStore } from "./artifacts.js";
+import { toWorkflowCancellationError } from "./errors.js";
 import { ExecutionBroadcaster } from "./events.js";
 import { createExecutionHistoryTracker } from "./history.js";
 import { createTaskLogger } from "./logging.js";
@@ -12,7 +13,12 @@ import {
   InMemoryMemoryEngine,
   InMemoryVectorStore
 } from "./memory.js";
+import {
+  registerGlobalWorkflowRun,
+  WorkflowRunControl
+} from "./runtime-control.js";
 import type {
+  AIChatRequest,
   AIProvider,
   AISession,
   AISessionMessage,
@@ -98,6 +104,123 @@ function ensureSequentialOnly(
   }
 
   throw new Error("Parallel transitions are not implemented in the Foundation MVP.");
+}
+
+function combineAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const activeSignals = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  if (activeSignals.length === 0) {
+    return undefined;
+  }
+
+  if (activeSignals.length === 1) {
+    return activeSignals[0];
+  }
+
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(activeSignals);
+  }
+
+  const controller = new AbortController();
+  const cleanup = (): void => {
+    for (const signal of activeSignals) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+  const onAbort = (event: Event): void => {
+    const signal = event.target as AbortSignal;
+    cleanup();
+    controller.abort(signal.reason);
+  };
+
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      return controller.signal;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  return controller.signal;
+}
+
+function withWorkflowAbortSignal(
+  request: AIChatRequest,
+  workflowSignal: AbortSignal
+): AIChatRequest {
+  const signal = combineAbortSignals([workflowSignal, request.http?.signal]);
+  if (!signal) {
+    return request;
+  }
+
+  return {
+    ...request,
+    http: {
+      ...request.http,
+      signal
+    }
+  };
+}
+
+function createAbortAwareAIProvider(provider: AIProvider, workflowSignal: AbortSignal): AIProvider {
+  return {
+    provider: provider.provider,
+    defaultChatModel: provider.defaultChatModel,
+    chat: (request) => provider.chat(withWorkflowAbortSignal(request, workflowSignal)),
+    chatStream: (request) => provider.chatStream(withWorkflowAbortSignal(request, workflowSignal))
+  };
+}
+
+function toSerializableErrorDetails(error: unknown): unknown {
+  if (!(error instanceof Error)) {
+    return error;
+  }
+
+  const details: Record<string, unknown> = {
+    name: error.name,
+    message: error.message,
+    stack: error.stack
+  };
+  const code = "code" in error ? (error as { code?: unknown }).code : undefined;
+  if (typeof code === "string") {
+    details.code = code;
+  }
+
+  return details;
+}
+
+function toFailureResult(error: unknown, control: WorkflowRunControl): TaskResult {
+  if (control.isCancellationRequested()) {
+    const cancellationError = toWorkflowCancellationError(control.reason);
+    return {
+      status: "fail",
+      error: {
+        message: cancellationError.message,
+        code: cancellationError.code,
+        details: toSerializableErrorDetails(error)
+      }
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      status: "fail",
+      error: {
+        message: error.message,
+        ...(("code" in error && typeof (error as { code?: unknown }).code === "string")
+          ? { code: (error as { code: string }).code }
+          : {}),
+        details: toSerializableErrorDetails(error)
+      }
+    };
+  }
+
+  return {
+    status: "fail",
+    error: {
+      message: String(error)
+    }
+  };
 }
 
 function toRagMemoryRecord(
@@ -221,6 +344,7 @@ type InternalRunOptions = {
   broadcaster?: ExecutionBroadcaster;
   historyTracker: ExecutionHistoryTracker;
   parent?: ParentRunContext;
+  control: WorkflowRunControl;
 };
 
 class DefaultCycle implements Cycle {
@@ -232,6 +356,7 @@ class DefaultCycle implements Cycle {
   private readonly now: () => number;
   private readonly llmModelId: string;
   private readonly embeddingModelId: string;
+  private readonly activeRuns = new Map<string, WorkflowRunControl>();
 
   constructor(options: CycleOptions = {}) {
     this.aiProvider = options.aiProvider ?? createUnavailableAIProvider();
@@ -258,11 +383,41 @@ class DefaultCycle implements Cycle {
     this.workflows.set(key, workflow);
   }
 
+  hasActiveRuns(): boolean {
+    for (const run of this.activeRuns.values()) {
+      if (run.isActive()) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async cancelActiveRuns(reason = "Workflow cancelled by Ctrl+C."): Promise<number> {
+    let cancelled = 0;
+    for (const run of this.activeRuns.values()) {
+      if (!run.isActive()) {
+        continue;
+      }
+
+      if (run.cancel(reason)) {
+        cancelled += 1;
+      }
+    }
+
+    return cancelled;
+  }
+
   async run(
     key: string,
     input: WorkflowInput,
     options: RunOptions = {},
   ): Promise<CycleRunResult> {
+    const controlKey = randomUUID();
+    const control = new WorkflowRunControl();
+    this.activeRuns.set(controlKey, control);
+    const unregisterGlobalRun = registerGlobalWorkflowRun(control);
+
     const historyTracker = createExecutionHistoryTracker();
     const runBroadcaster = new ExecutionBroadcaster([
       ...this.broadcaster.listObservers(),
@@ -279,11 +434,15 @@ class DefaultCycle implements Cycle {
         input,
         options,
         broadcaster: runBroadcaster,
-        historyTracker
+        historyTracker,
+        control
       });
       finalStatus = result.frame.status === "success" ? "success" : "fail";
       return result;
     } finally {
+      control.complete();
+      unregisterGlobalRun();
+      this.activeRuns.delete(controlKey);
       await runBroadcaster.stop(finalStatus);
     }
   }
@@ -293,8 +452,10 @@ class DefaultCycle implements Cycle {
     key: string,
     input: WorkflowInput,
     broadcaster: ExecutionBroadcaster,
+    control: WorkflowRunControl,
     options: SubWorkflowRunOptions = {},
   ): Promise<CycleRunResult> {
+    control.throwIfRequested();
     const branchId = options.branchId ?? `branch_${randomUUID().slice(0, 8)}`;
     const historyTracker = createExecutionHistoryTracker();
     broadcaster.addObserver(historyTracker);
@@ -324,6 +485,7 @@ class DefaultCycle implements Cycle {
         options,
         broadcaster,
         historyTracker,
+        control,
         parent: {
           ...parent,
           branchId
@@ -372,6 +534,7 @@ class DefaultCycle implements Cycle {
     if (!workflow) {
       throw new Error(`Workflow "${args.key}" is not registered.`);
     }
+    args.control.throwIfRequested();
 
     const runBroadcaster = args.broadcaster;
     if (!runBroadcaster) {
@@ -400,6 +563,7 @@ class DefaultCycle implements Cycle {
       }
     });
     let lifecycleReport = EMPTY_LIFECYCLE_REPORT;
+    const abortAwareAIProvider = createAbortAwareAIProvider(this.aiProvider, args.control.signal);
 
     const meta =
       args.parent
@@ -427,6 +591,7 @@ class DefaultCycle implements Cycle {
 
     try {
       while (frame.currentState !== endState) {
+        args.control.throwIfRequested();
         const task = workflow.tasks[frame.currentState];
         if (!task) {
           throw new Error(
@@ -472,17 +637,19 @@ class DefaultCycle implements Cycle {
           input: args.input,
           now: this.now()
         });
+        args.control.throwIfRequested();
 
         const context: WorkflowContext = {
           workflowId,
           runId,
           input: args.input,
           session: createSession(this.llmModelId, this.embeddingModelId),
-          ai: this.aiProvider,
+          ai: abortAwareAIProvider,
           memory,
           memoryContext,
           artifacts,
           log,
+          cancellation: args.control,
           now: this.now,
           runSubWorkflow: (key, input, options) =>
             this.runSubWorkflow(
@@ -493,29 +660,29 @@ class DefaultCycle implements Cycle {
               key,
               input,
               runBroadcaster,
+              args.control,
               options
             )
         };
 
-        if (task.before) {
-          await task.before(context);
-        }
-
         let result: TaskResult;
         try {
+          args.control.throwIfRequested();
+          if (task.before) {
+            await task.before(context);
+          }
+          args.control.throwIfRequested();
           result = await task.run(context);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          result = {
-            status: "fail",
-            error: {
-              message
-            }
-          };
+          result = toFailureResult(error, args.control);
         }
 
-        if (task.after) {
-          await task.after(context, result);
+        try {
+          if (task.after) {
+            await task.after(context, result);
+          }
+        } catch (error) {
+          result = toFailureResult(error, args.control);
         }
 
         await memory.afterStep({
@@ -634,10 +801,15 @@ class DefaultCycle implements Cycle {
         history: args.historyTracker
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const normalizedError = args.control.isCancellationRequested()
+        ? toWorkflowCancellationError(args.control.reason)
+        : error;
+      const message =
+        normalizedError instanceof Error ? normalizedError.message : String(normalizedError);
       frame.status = "fail";
       frame.errors.push(message);
       frame.updatedAt = this.now();
+      lifecycleReport = await memory.runLifecycle(this.now());
 
       await runBroadcaster.emit({
         type: "workflow.failed",

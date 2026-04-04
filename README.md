@@ -104,6 +104,8 @@ OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_REN
 - `PageUp/PageDown`: 페이지 단위 스크롤
 - `Home/End`, `g/G`: 처음/끝 이동
 - `CYCLE_LOG_LEVEL=debug`: task debug log 와 provider HTTP debug log 노출
+- workflow 실행 중 `Ctrl+C`: 현재 active workflow 와 sub-workflow 에 cancel signal 전파
+- idle 상태 `Ctrl+C`: Ink terminal reset 후 프로세스 종료
 
 interactive TTY 가 아니면 `ink` 모드는 `jsonl` 로 자동 fallback 된다.
 
@@ -188,6 +190,26 @@ const input = createWorkflowInput({
 });
 
 await cycle.run("report", input);
+```
+
+## Workflow Cancellation
+`WorkflowContext.cancellation.signal` 로 현재 workflow run 의 cancel signal 을 읽을 수 있다. `ink` mode 에서는 `Ctrl+C` 가 active workflow 를 먼저 cancel 하고, active workflow 가 없을 때만 terminal reset + exit 를 수행한다.
+
+```ts
+class LongTask extends Task {
+  name = "longTask";
+  memoryPhase = "EXECUTION" as const;
+  memoryTaskType = "workflow" as const;
+
+  async run(ctx: WorkflowContext): Promise<TaskResult> {
+    ctx.cancellation.throwIfRequested();
+    const result = await ctx.ai.chat({
+      messages: [{ role: "user", content: "Do work" }]
+    });
+    ctx.cancellation.throwIfRequested();
+    return { status: "success", output: result.outputText };
+  }
+}
 ```
 
 ## Run Result Snapshot

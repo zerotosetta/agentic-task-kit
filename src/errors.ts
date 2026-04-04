@@ -1,5 +1,7 @@
 import type { AIProviderRequestErrorDetails } from "./types.js";
 
+const DEFAULT_WORKFLOW_CANCELLATION_MESSAGE = "Workflow cancelled by Ctrl+C.";
+
 function safeStringify(value: unknown): string {
   if (typeof value === "string") {
     return value;
@@ -96,4 +98,38 @@ export class AIProviderRequestError extends Error {
           : this.originalError
     };
   }
+}
+
+export class WorkflowCancellationError extends Error {
+  readonly code = "ABORTED";
+
+  constructor(message = DEFAULT_WORKFLOW_CANCELLATION_MESSAGE, options?: { cause?: unknown }) {
+    super(message, {
+      cause: options?.cause instanceof Error ? options.cause : undefined
+    });
+
+    this.name = "WorkflowCancellationError";
+  }
+}
+
+export function isWorkflowCancellationError(error: unknown): error is WorkflowCancellationError {
+  return error instanceof WorkflowCancellationError;
+}
+
+export function toWorkflowCancellationError(reason?: unknown): WorkflowCancellationError {
+  if (reason instanceof WorkflowCancellationError) {
+    return reason;
+  }
+
+  if (reason instanceof Error) {
+    return new WorkflowCancellationError(reason.message || DEFAULT_WORKFLOW_CANCELLATION_MESSAGE, {
+      cause: reason
+    });
+  }
+
+  if (typeof reason === "string" && reason.trim().length > 0) {
+    return new WorkflowCancellationError(reason);
+  }
+
+  return new WorkflowCancellationError(DEFAULT_WORKFLOW_CANCELLATION_MESSAGE);
 }
