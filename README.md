@@ -296,7 +296,7 @@ npm run build:all-in-one
 npm run publish:all-in-one:dry-run
 ```
 
-이 스크립트는 `.npm-package/` 아래에 runtime dependency 없는 publish 전용 package manifest 와 `dist/` 번들을 만든다. publish artifact 에는 `dist/**/*.map` source map 을 포함하지 않는다.
+이 스크립트는 `.npm-package/` 아래에 runtime dependency 없는 publish 전용 package manifest 와 `dist/` 번들을 만들고, publish artifact 에서는 `dist/**/*.map` source map 파일을 제외한다.
 
 GitHub Actions 에서는 `.github/workflows/npm-publish.yml` 이 같은 publish 경로를 사용한다. repository secret `NPM_AUTH_TOKEN` 을 등록하면 `workflow_dispatch` 또는 `v*` tag push 로 publish 할 수 있다. manual publish 는 default branch 에서만 허용되고, 기본 `patch` version bump 후 publish 한 다음 release commit 과 `v<version>` tag 를 origin 에 반영한다.
 
