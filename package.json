@@ -5,11 +5,11 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/skyend/agentic-task-kit.git"
+    "url": "git+https://github.com/zerotosetta/agentic-task-kit.git"
   },
-  "homepage": "https://github.com/skyend/agentic-task-kit#readme",
+  "homepage": "https://github.com/zerotosetta/agentic-task-kit#readme",
   "bugs": {
-    "url": "https://github.com/skyend/agentic-task-kit/issues"
+    "url": "https://github.com/zerotosetta/agentic-task-kit/issues"
   },
   "publishConfig": {
     "access": "public"

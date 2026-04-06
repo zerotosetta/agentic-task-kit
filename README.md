@@ -146,14 +146,14 @@ OPENAI_API_KEY=your_key_here npm run example:openai:stream
 ```
 - AXPM-hosted memory demo workflow:
 ```bash
-git clone https://github.com/skyend/agentic-task-kit-axpm.git
+git clone https://github.com/zerotosetta/agentic-task-kit-axpm.git
 cd agentic-task-kit-axpm/example-project
 npm install
 npm run start:memory-demo:line
 ```
 - AXPM-hosted Java modernization pipeline example:
 ```bash
-git clone https://github.com/skyend/agentic-task-kit-axpm.git
+git clone https://github.com/zerotosetta/agentic-task-kit-axpm.git
 cd agentic-task-kit-axpm/example-project
 npm install
 npm run start
@@ -301,12 +301,12 @@ npm run publish:all-in-one:dry-run
 GitHub Actions 에서는 `.github/workflows/npm-publish.yml` 이 같은 publish 경로를 사용한다. repository secret `NPM_AUTH_TOKEN` 을 등록하면 `workflow_dispatch` 또는 `v*` tag push 로 publish 할 수 있다. manual publish 는 default branch 에서만 허용되고, 기본 `patch` version bump 후 publish 한 다음 release commit 과 `v<version>` tag 를 origin 에 반영한다.
 
 ## 문서
-- [developer guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/developer-guide.md)
-- [release guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/release-guide.md)
-- [memory guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/memory-guide.md)
-- [local setup](https://github.com/skyend/agentic-task-kit/blob/main/docs/local-setup.md)
-- [runtime overview](https://github.com/skyend/agentic-task-kit/blob/main/docs/runtime-overview.md)
-- [consumer example](https://github.com/skyend/agentic-task-kit/blob/main/docs/consumer-example.md)
-- [OpenAI Chat API](https://github.com/skyend/agentic-task-kit/blob/main/docs/openai-chat-api.md)
-- [sample project](https://github.com/skyend/agentic-task-kit/blob/main/sample-project/README.md)
-- [AXPM example project](https://github.com/skyend/agentic-task-kit-axpm/blob/main/example-project/README.md)
+- [developer guide](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/developer-guide.md)
+- [release guide](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/release-guide.md)
+- [memory guide](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/memory-guide.md)
+- [local setup](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/local-setup.md)
+- [runtime overview](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/runtime-overview.md)
+- [consumer example](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/consumer-example.md)
+- [OpenAI Chat API](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/openai-chat-api.md)
+- [sample project](https://github.com/zerotosetta/agentic-task-kit/blob/main/sample-project/README.md)
+- [AXPM example project](https://github.com/zerotosetta/agentic-task-kit-axpm/blob/main/example-project/README.md)
