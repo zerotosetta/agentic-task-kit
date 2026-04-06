@@ -1,0 +1,88 @@
+name: Publish npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: npm dist-tag to publish with
+        required: false
+        default: latest
+        type: string
+      dry_run:
+        description: Build and validate the publish payload without uploading to npm
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
+
+      - name: Guard manual publish branch
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "${{ github.event.repository.default_branch }}" ]; then
+            echo "Manual publish is only allowed from the default branch."
+            echo "Current ref: ${GITHUB_REF_NAME}"
+            echo "Default branch: ${{ github.event.repository.default_branch }}"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build all-in-one publish artifact
+        run: npm run build:all-in-one
+
+      - name: Verify packed artifact
+        run: npm pack ./.npm-package
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          node -e 'const fs=require("node:fs"); const pkg=JSON.parse(fs.readFileSync("package.json","utf8")); const tag=process.env.GITHUB_REF_NAME; const expected=`v${pkg.version}`; if(tag!==expected){console.error(`Git tag ${tag} does not match package version ${pkg.version}`); process.exit(1);} console.log(`Verified ${tag} matches package version ${pkg.version}`);'
+
+      - name: Dry-run npm publish
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
+        run: npm publish ./.npm-package --access public --dry-run --tag "${{ github.event.inputs.npm_tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+
+      - name: Publish to npm from workflow dispatch
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
+        run: npm publish ./.npm-package --access public --tag "${{ github.event.inputs.npm_tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+
+      - name: Publish to npm from tag push
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm publish ./.npm-package --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
