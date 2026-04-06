@@ -273,6 +273,24 @@ npm run publish:all-in-one:dry-run
 npm run publish:all-in-one
 ```
 
+## GitHub Actions publish automation
+repository secret `NPM_AUTH_TOKEN` 을 등록하면 `.github/workflows/npm-publish.yml` 로 같은 all-in-one artifact 를 GitHub Actions 에서 publish 할 수 있다.
+
+- trigger:
+  - `workflow_dispatch`
+  - `v*` tag push
+- gate:
+  - `npm ci`
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build:all-in-one`
+  - `npm pack ./.npm-package`
+- 인증:
+  - workflow 는 `secrets.NPM_AUTH_TOKEN` 을 `NODE_AUTH_TOKEN` 으로 매핑해 npm registry 인증에 사용한다.
+- 안전장치:
+  - manual publish 는 default branch 에서만 허용된다.
+  - tag publish 는 `v${package.json.version}` 일치 여부를 검사한다.
+
 ## AI task 에 memory context 넣기
 memory 조회는 자동이지만, AI 프롬프트 주입은 task 코드가 직접 한다.
 
