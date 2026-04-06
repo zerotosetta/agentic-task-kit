@@ -279,6 +279,9 @@ repository secret `NPM_AUTH_TOKEN` 을 등록하면 `.github/workflows/npm-publi
 - trigger:
   - `workflow_dispatch`
   - `v*` tag push
+- versioning:
+  - `workflow_dispatch` publish 는 `version_bump` 입력을 받고 기본값은 `patch` 다.
+  - publish 전 `package.json` / `package-lock.json` version 을 올리고, 성공 후 release commit 과 `v<version>` tag 를 origin 에 push 한다.
 - gate:
   - `npm ci`
   - `npm run typecheck`
@@ -290,6 +293,7 @@ repository secret `NPM_AUTH_TOKEN` 을 등록하면 `.github/workflows/npm-publi
 - 안전장치:
   - manual publish 는 default branch 에서만 허용된다.
   - tag publish 는 `v${package.json.version}` 일치 여부를 검사한다.
+  - `github-actions[bot]` 가 만든 tag push run 은 중복 publish 를 피하기 위해 skip 한다.
 
 ## AI task 에 memory context 넣기
 memory 조회는 자동이지만, AI 프롬프트 주입은 task 코드가 직접 한다.
