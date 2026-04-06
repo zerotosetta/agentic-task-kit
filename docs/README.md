@@ -10,4 +10,5 @@
 - runtime and deployment overview
 - API or schema notes
 - troubleshooting / runbook
+- release guide
 - release notes

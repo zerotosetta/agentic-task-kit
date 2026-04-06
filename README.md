@@ -302,6 +302,7 @@ GitHub Actions 에서는 `.github/workflows/npm-publish.yml` 이 같은 publish 
 
 ## 문서
 - [developer guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/developer-guide.md)
+- [release guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/release-guide.md)
 - [memory guide](https://github.com/skyend/agentic-task-kit/blob/main/docs/memory-guide.md)
 - [local setup](https://github.com/skyend/agentic-task-kit/blob/main/docs/local-setup.md)
 - [runtime overview](https://github.com/skyend/agentic-task-kit/blob/main/docs/runtime-overview.md)
