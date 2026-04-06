@@ -276,6 +276,8 @@ npm run publish:all-in-one
 ## GitHub Actions publish automation
 repository secret `NPM_AUTH_TOKEN` 을 등록하면 `.github/workflows/npm-publish.yml` 로 같은 all-in-one artifact 를 GitHub Actions 에서 publish 할 수 있다.
 
+전체 release 절차와 실패 대응은 [release-guide.md](./release-guide.md) 를 본다.
+
 - trigger:
   - `workflow_dispatch`
   - `v*` tag push
