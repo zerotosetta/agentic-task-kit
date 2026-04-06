@@ -7,7 +7,7 @@
 - npm registry publish 권한이 있는 `NPM_AUTH_TOKEN` repository secret 이 설정되어 있어야 한다.
 - default branch 는 `main` 이어야 한다.
 - `package.json` 과 `package-lock.json` 은 workflow 가 자동으로 version bump 한다.
-- publish artifact 는 `.npm-package/` all-in-one bundle 이다.
+- publish artifact 는 `.npm-package/` all-in-one bundle 이고, `dist/**/*.map` source map 은 제외된다.
 
 ## 권장 릴리스 경로
 가장 권장되는 경로는 GitHub Actions `workflow_dispatch` 다.
@@ -68,6 +68,7 @@ dry-run 에서는:
 - all-in-one bundle build
 - `npm pack`
 - `npm publish --dry-run`
+- tarball contents 에 `.map` 파일이 없는지 확인
 
 ## 로컬 검증 명령
 GitHub Actions 를 돌리기 전에 로컬에서 확인하려면:

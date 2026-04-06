@@ -54,7 +54,10 @@ async function main() {
 
   await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });
-  await cp(distDir, resolve(outputDir, "dist"), { recursive: true });
+  await cp(distDir, resolve(outputDir, "dist"), {
+    recursive: true,
+    filter: (source) => !source.endsWith(".map")
+  });
   await copyFile(readmePath, resolve(outputDir, "README.md"));
   await copyFile(licensePath, resolve(outputDir, "LICENSE"));
 

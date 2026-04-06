@@ -260,7 +260,7 @@ const cycle = createCycle({
 provider 문서는 [openai-chat-api.md](./openai-chat-api.md) 를 본다.
 
 ## All-in-one npm 패키지 빌드
-배포용으로는 runtime dependency 를 비운 publish artifact 를 `.npm-package/` 아래에 만든다.
+배포용으로는 runtime dependency 를 비운 publish artifact 를 `.npm-package/` 아래에 만든다. publish artifact 에는 `dist/**/*.map` source map 을 싣지 않는다.
 
 ```bash
 npm run build:all-in-one
