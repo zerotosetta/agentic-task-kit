@@ -367,6 +367,7 @@ class DefaultCycle implements Cycle {
         vectorStore: options.vectorStore ?? new InMemoryVectorStore(),
         graphStore: options.graphStore ?? new InMemoryGraphStore(),
         ...(options.embeddingProvider ? { embeddingProvider: options.embeddingProvider } : {}),
+        ...(options.memoryWritePolicy ? { writePolicy: options.memoryWritePolicy } : {}),
         ...(options.maxMemoryContextTokens
           ? { maxContextTokens: options.maxMemoryContextTokens }
           : {})

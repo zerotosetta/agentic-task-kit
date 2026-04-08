@@ -154,6 +154,29 @@ describe("CLI renderer", () => {
     expect(output).toContain("Failure: Request timed out.");
   });
 
+  it("prints memory warning summaries in line mode", () => {
+    const renderer = createCLIRenderer({
+      enabled: false,
+      stream: stream as unknown as NodeJS.WriteStream
+    });
+
+    renderer.start();
+    renderer.onEvent({
+      type: "memory.warning",
+      timestamp: Date.UTC(2026, 2, 28, 12, 0, 4),
+      workflowId: "report",
+      runId: "run_warn",
+      summary: "similar_overwrite similar record overwritten at score 0.94",
+      meta: {
+        code: "similar_overwrite",
+        reason: "similar record overwritten at score 0.94"
+      }
+    });
+    renderer.stop("success");
+
+    expect(output).toContain("memory.warning similar_overwrite similar record overwritten at score 0.94");
+  });
+
   it("falls back to jsonl when ink mode is requested without an interactive tty", () => {
     const renderer = createCLIRenderer({
       enabled: true,

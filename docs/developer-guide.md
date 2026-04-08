@@ -219,6 +219,16 @@ await ctx.memory.write({
 
 메모리 상세 규칙은 [memory-guide.md](./memory-guide.md) 를 본다.
 
+유사 memory write 정책이 필요하면 workflow 단위로 고정할 수 있다.
+
+```ts
+const cycle = createCycle({
+  memoryWritePolicy: {
+    similarWriteAction: "overwrite"
+  }
+});
+```
+
 ## AI provider 연결
 OpenAI-compatible provider 를 붙이면 task 내부에서 `ctx.ai.chat()` 과 `ctx.ai.chatStream()` 을 사용할 수 있다.
 

@@ -20,6 +20,21 @@ export type MemoryPhase = "PLANNING" | "EXECUTION" | "REFLECTION" | "RECOVERY";
 
 export type MemoryTaskType = "user" | "workflow" | "debug" | "default";
 
+export type MemorySimilarWriteAction = "overwrite" | "merge" | "discard";
+
+export type MemoryWritePolicy = {
+  similarWriteAction?: MemorySimilarWriteAction;
+  similarityThreshold?: number;
+};
+
+export type MemoryWarningCode =
+  | "similar_overwrite"
+  | "similar_merge"
+  | "similar_discard"
+  | "low_importance_discard"
+  | "lifecycle_archive"
+  | "lifecycle_delete";
+
 export type StepExecutionLog = {
   stepName: string;
   status: TaskStatus;
@@ -109,6 +124,7 @@ export type MemoryRecordInput = {
   phase?: MemoryPhase;
   taskType?: MemoryTaskType;
   supersedes?: string[];
+  similarWriteAction?: MemorySimilarWriteAction;
 };
 
 export type RetrieveRequest = {
@@ -160,6 +176,8 @@ export type WriteDisposition = {
   targetId?: string;
   reason: string;
   importance: number;
+  similarityScore?: number;
+  warningCode?: MemoryWarningCode;
 };
 
 export type MemoryWriteReport = {
@@ -455,6 +473,7 @@ export type ExecutionEvent =
         | "memory.before_step"
         | "memory.after_step"
         | "memory.write"
+        | "memory.warning"
         | "memory.merge"
         | "memory.compress"
         | "memory.expire"
@@ -636,6 +655,7 @@ export interface Cycle extends WorkflowRuntimeController {
 export type CycleOptions = {
   aiProvider?: AIProvider;
   memoryEngine?: MemoryEngine;
+  memoryWritePolicy?: MemoryWritePolicy;
   artifactStore?: ArtifactStore;
   observers?: ExecutionObserver[];
   now?: () => number;

@@ -16,7 +16,9 @@ import type {
   MemoryRecord,
   MemoryRecordInput,
   MemoryShard,
+  MemorySimilarWriteAction,
   MemoryTaskType,
+  MemoryWritePolicy,
   MemoryWriteReport,
   RetrieveHit,
   RetrieveRequest,
@@ -33,13 +35,15 @@ import { toSerializableValue } from "./workflow-input.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_CONTEXT_TOKENS = 8_192;
-const SIMILARITY_THRESHOLD = 0.85;
+const DEFAULT_SIMILARITY_THRESHOLD = 0.85;
+const DEFAULT_SIMILAR_WRITE_ACTION: MemorySimilarWriteAction = "overwrite";
 const REPEATED_EVENT_THRESHOLD = 3;
 
 type MemoryEventType =
   | "memory.before_step"
   | "memory.after_step"
   | "memory.write"
+  | "memory.warning"
   | "memory.merge"
   | "memory.compress"
   | "memory.expire"
@@ -209,6 +213,7 @@ type MemoryEngineOptions = {
   graphStore?: GraphStore;
   embeddingProvider?: EmbeddingProvider;
   maxContextTokens?: number;
+  writePolicy?: MemoryWritePolicy;
 };
 
 export class InMemoryMemoryEngine implements MemoryEngine {
@@ -217,6 +222,7 @@ export class InMemoryMemoryEngine implements MemoryEngine {
   private readonly graphStore: GraphStore;
   private readonly embeddingProvider: EmbeddingProvider;
   private readonly maxContextTokens: number;
+  private readonly writePolicy: Required<MemoryWritePolicy>;
 
   constructor(options: MemoryEngineOptions = {}) {
     this.kvStore = options.kvStore ?? new InMemoryKVStore();
@@ -225,6 +231,12 @@ export class InMemoryMemoryEngine implements MemoryEngine {
     this.embeddingProvider =
       options.embeddingProvider ?? new DeterministicHashEmbeddingProvider();
     this.maxContextTokens = options.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
+    this.writePolicy = {
+      similarWriteAction:
+        options.writePolicy?.similarWriteAction ?? DEFAULT_SIMILAR_WRITE_ACTION,
+      similarityThreshold:
+        options.writePolicy?.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD
+    };
   }
 
   async beforeStep(input: BeforeStepInput): Promise<StepMemoryContext> {
@@ -289,18 +301,19 @@ export class InMemoryMemoryEngine implements MemoryEngine {
     });
     const normalizedContent = stringifyPayload(record.payload, record.description);
     const similarityMatch = findSimilarityMatch(record, candidates, normalizedContent);
-    const novelty = similarityMatch ? Math.max(0, 1 - similarityMatch.score) : 1;
+    const similarWriteAction =
+      record.similarWriteAction ?? this.writePolicy.similarWriteAction;
+    const canApplySimilarityPolicy =
+      similarityMatch !== null &&
+      similarityMatch.score >= this.writePolicy.similarityThreshold &&
+      !(record.shard === "task" && record.kind === "raw");
+    const novelty =
+      canApplySimilarityPolicy && similarityMatch
+        ? Math.max(0, 1 - similarityMatch.score)
+        : 1;
     const importance = clamp01(
       record.importance ?? calculateImportance(record, novelty),
     );
-
-    if (importance < 0.6) {
-      return {
-        action: "discard",
-        reason: `importance ${importance.toFixed(2)} is below 0.6`,
-        importance
-      };
-    }
 
     if (existing) {
       const next = await this.materializeRecord(record, now, importance, existing.createdAt);
@@ -314,20 +327,64 @@ export class InMemoryMemoryEngine implements MemoryEngine {
       };
     }
 
-    if (
-      similarityMatch &&
-      similarityMatch.score >= SIMILARITY_THRESHOLD &&
-      !(record.shard === "task" && record.kind === "raw")
-    ) {
-      const merged = mergeRecords(similarityMatch.record, record, now, importance);
-      await this.persistRecord(merged);
-      await linkSupersedes(this.graphStore, similarityMatch.record.id, merged.id, "merged-into");
+    if (canApplySimilarityPolicy && similarityMatch) {
+      if (similarWriteAction === "discard") {
+        return {
+          action: "discard",
+          targetId: similarityMatch.record.id,
+          reason: `similar record discarded at score ${similarityMatch.score.toFixed(2)} by policy`,
+          importance,
+          similarityScore: similarityMatch.score,
+          warningCode: "similar_discard"
+        };
+      }
+
+      if (similarWriteAction === "merge") {
+        const merged = mergeRecords(similarityMatch.record, record, now, importance);
+        await this.persistRecord(merged);
+        await linkSupersedes(this.graphStore, similarityMatch.record.id, merged.id, "merged-into");
+        return {
+          action: "merge",
+          recordId: merged.id,
+          targetId: similarityMatch.record.id,
+          reason: `similar record merged at score ${similarityMatch.score.toFixed(2)}`,
+          importance,
+          similarityScore: similarityMatch.score,
+          warningCode: "similar_merge"
+        };
+      }
+
+      const overwritten = await this.materializeRecord(
+        {
+          ...record,
+          id: similarityMatch.record.id,
+          supersedes: uniqueStrings([
+            ...(similarityMatch.record.supersedes ?? []),
+            ...(record.supersedes ?? [])
+          ])
+        },
+        now,
+        Math.max(similarityMatch.record.importance, importance),
+        similarityMatch.record.createdAt,
+      );
+      await this.persistRecord(overwritten);
       return {
-        action: "merge",
-        recordId: merged.id,
+        action: "overwrite",
+        recordId: overwritten.id,
         targetId: similarityMatch.record.id,
-        reason: `similar record merged at score ${similarityMatch.score.toFixed(2)}`,
-        importance
+        reason: `similar record overwritten at score ${similarityMatch.score.toFixed(2)}`,
+        importance: overwritten.importance,
+        similarityScore: similarityMatch.score,
+        warningCode: "similar_overwrite"
+      };
+    }
+
+    if (importance < 0.6) {
+      return {
+        action: "discard",
+        reason: `importance ${importance.toFixed(2)} is below 0.6`,
+        importance,
+        warningCode: "low_importance_discard"
       };
     }
 
@@ -716,8 +773,20 @@ export function createObservedMemoryEngine(args: ObservedMemoryEngineArgs): Memo
         recordId: disposition.recordId,
         targetId: disposition.targetId,
         reason: disposition.reason,
-        importance: disposition.importance
+        importance: disposition.importance,
+        similarityScore: disposition.similarityScore
       });
+      if (disposition.warningCode) {
+        await emit("memory.warning", `${disposition.warningCode} ${disposition.reason}`, {
+          code: disposition.warningCode,
+          action: disposition.action,
+          recordId: disposition.recordId,
+          targetId: disposition.targetId,
+          reason: disposition.reason,
+          importance: disposition.importance,
+          similarityScore: disposition.similarityScore
+        });
+      }
       return disposition;
     },
     async get(id) {
@@ -744,12 +813,33 @@ export function createObservedMemoryEngine(args: ObservedMemoryEngineArgs): Memo
         await emit("memory.archive", "lifecycle archive", {
           archivedIds: report.archivedIds
         });
+        await emit(
+          "memory.warning",
+          `lifecycle archive ${report.archivedIds.length} record(s) archived`,
+          {
+          code: "lifecycle_archive",
+          archivedIds: report.archivedIds,
+          reason: `${report.archivedIds.length} record(s) archived by lifecycle`
+          }
+        );
       }
       if (report.expiredIds.length > 0 || report.deletedIds.length > 0) {
         await emit("memory.expire", "lifecycle expire", {
           expiredIds: report.expiredIds,
           deletedIds: report.deletedIds
         });
+        if (report.deletedIds.length > 0) {
+          await emit(
+            "memory.warning",
+            `lifecycle delete ${report.deletedIds.length} record(s) deleted`,
+            {
+              code: "lifecycle_delete",
+              deletedIds: report.deletedIds,
+              expiredIds: report.expiredIds,
+              reason: `${report.deletedIds.length} record(s) deleted by lifecycle`
+            }
+          );
+        }
       }
       return report;
     },
