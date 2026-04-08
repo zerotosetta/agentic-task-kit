@@ -405,7 +405,7 @@ export function lineForEvent(event: ExecutionEvent): string {
 export function lineForTaskLog(event: TaskLogEvent): string {
   const prefix = `[${formatClock(event.timestamp)}]`;
   const taskName = event.taskName ? ` ${event.taskName}` : "";
-  return `${prefix} task ${event.level}${taskName} ${event.message}`;
+  return `${prefix} task ${event.level}${taskName} ${event.message}${formatTaskLogMeta(event.meta)}`;
 }
 
 export function jsonForTaskLog(event: TaskLogEvent): string {
@@ -762,7 +762,7 @@ export function pushTaskLog(
     level: event.level,
     source: "task",
     ...(event.taskName !== undefined ? { taskName: event.taskName } : {}),
-    text: `${formatClock(event.timestamp)} [${event.level.toUpperCase()}] ${event.taskName ?? "-"} ${event.message}`
+    text: `${formatClock(event.timestamp)} [${event.level.toUpperCase()}] ${event.taskName ?? "-"} ${event.message}${formatTaskLogMeta(event.meta)}`
   });
   state.timeline = state.timeline.slice(-maxTimelineRows);
 }
@@ -805,6 +805,46 @@ function stringifyMetaValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function renderTaskLogMetaValue(value: unknown): string {
+  if (typeof value === "string") {
+    return JSON.stringify(clipMiddle(value, 96));
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return JSON.stringify(clipMiddle(value.map((entry) => stringifyMetaValue(entry)).join(","), 96));
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(clipMiddle(JSON.stringify(value), 96));
+  } catch {
+    return JSON.stringify(clipMiddle(String(value), 96));
+  }
+}
+
+function formatTaskLogMeta(meta: Record<string, unknown> | undefined): string {
+  if (!meta) {
+    return "";
+  }
+
+  const rendered = Object.entries(meta)
+    .map(([key, value]) => {
+      const renderedValue = renderTaskLogMetaValue(value);
+      return renderedValue ? `${key}=${renderedValue}` : "";
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+
+  return rendered.length > 0 ? ` ${rendered.join(" ")}` : "";
 }
 
 export function buildDebugTimelineText(payload: Record<string, unknown>, timestamp: number): string {

@@ -274,6 +274,11 @@ class ParentTask extends Task {
 - `RunOptions.memoryInjection` 은 `MemoryRecordInput[]` 를 받고, `rag` 문서는 `knowledge/raw` record 로 주입된다.
 - Ink TUI 우측 패널에는 task log, provider HTTP debug log 뿐 아니라 retrieval / write / compress / archive / expire / warning 메모리 이벤트도 구조화되어 표시된다.
 
+## AI Monitoring
+- `ctx.ai.chat()` 와 `ctx.ai.chatStream()` 은 task logger 와 자동 연결된다.
+- runtime 이 request 전후로 `promptLength`, `fullPromptLength`, `outputLength`, `model`, preview 를 structured task log 로 남긴다.
+- line / compact / ink renderer 는 task log `meta` 를 축약 형식으로 표시한다.
+
 ## OpenAI-compatible provider quick usage
 ```ts
 import { createCycle, createOpenAICompatibleChatProvider } from "agentic-task-kit";
