@@ -110,6 +110,7 @@ OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_REN
 - `↑↓` / `j k`: 현재 패널 스크롤
 - `PageUp/PageDown`: 페이지 단위 스크롤
 - `Home/End`, `g/G`: 처음/끝 이동
+- `q`: Ink 종료. active workflow 가 있으면 graceful cancel 후 종료, idle 이면 즉시 종료
 - `CYCLE_LOG_LEVEL=debug`: task debug log 와 provider HTTP debug log 노출
 - line mode 는 warning/error task log meta 를 `...` 없이 전체 출력
 - workflow 실행 중 `Ctrl+C`: 현재 active workflow 와 sub-workflow 에 graceful cancel signal 전파 후, run 종료 시 Ink terminal reset + 프로세스 종료
@@ -255,7 +256,7 @@ await cycle.run("report", input);
 ```
 
 ## Workflow Cancellation
-`WorkflowContext.cancellation.signal` 로 현재 workflow run 의 cancel signal 을 읽을 수 있다. `ink` mode 에서는 `Ctrl+C` 가 active workflow 를 먼저 graceful cancel 하고, run 종료가 관측되면 terminal reset + exit 를 수행한다. active workflow 가 없으면 즉시 terminal reset + exit 한다.
+`WorkflowContext.cancellation.signal` 로 현재 workflow run 의 cancel signal 을 읽을 수 있다. `ink` mode 에서는 `Ctrl+C` 가 active workflow 를 먼저 graceful cancel 하고, run 종료가 관측되면 terminal reset + exit 를 수행한다. active workflow 가 없으면 즉시 terminal reset + exit 한다. 명시적인 종료 키 `q` 도 같은 정책을 따르며, 종료 code 는 정상 종료로 처리한다.
 
 ```ts
 class LongTask extends Task {

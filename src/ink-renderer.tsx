@@ -62,6 +62,7 @@ type InkRendererScreenProps = {
   useColor: boolean;
   colorTheme: ResolvedTaskLogColorTheme;
   onInterrupt?: () => void;
+  onQuit?: () => void;
 };
 
 const DEFAULT_COLUMNS = 100;
@@ -74,6 +75,7 @@ const TASK_BOX_INNER_WIDTH = 16;
 
 type InkInputKey = {
   ctrl?: boolean;
+  meta?: boolean;
   name?: string;
   sequence?: string;
   tab?: boolean;
@@ -113,7 +115,7 @@ function buildHeaderLine(state: RendererState, columns: number): string {
 
 function buildFooterLine(columns: number, focusedPane: InkPane, rightAutoFollow: boolean): string {
   const text =
-    `Tab pane  up/down,j/k scroll  PgUp/PgDn page  Home/End,g/G edge  focus=${focusedPane}  follow=${rightAutoFollow ? "on" : "off"}`;
+    `Tab pane  up/down,j/k scroll  PgUp/PgDn page  Home/End,g/G edge  q quit  focus=${focusedPane}  follow=${rightAutoFollow ? "on" : "off"}`;
   return padLine(text, columns);
 }
 
@@ -390,6 +392,14 @@ export function isInkInterruptInput(input: string, key: InkInputKey): boolean {
   return key.ctrl === true && (input.toLowerCase() === "c" || key.name === "c");
 }
 
+export function isInkQuitInput(input: string, key: InkInputKey): boolean {
+  if (key.ctrl === true || key.meta === true) {
+    return false;
+  }
+
+  return input.toLowerCase() === "q";
+}
+
 export function InkRendererScreen({
   state,
   columns,
@@ -397,7 +407,8 @@ export function InkRendererScreen({
   finalStatus,
   useColor,
   colorTheme,
-  onInterrupt
+  onInterrupt,
+  onQuit
 }: InkRendererScreenProps): ReactElement {
   const [uiState, setUiState] = useState<InkUIState>({
     focusedPane: "right",
@@ -438,6 +449,11 @@ export function InkRendererScreen({
   useInput((input, key) => {
     if (isInkInterruptInput(input, key)) {
       onInterrupt?.();
+      return;
+    }
+
+    if (isInkQuitInput(input, key)) {
+      onQuit?.();
       return;
     }
 
@@ -564,10 +580,32 @@ export class InkCLIRenderer implements CLIRenderer {
   private debugLineReader: ReadLineInterface | null = null;
   private resizeHandler: (() => void) | null = null;
   private interruptCancellationRequested = false;
-  private exitAfterWorkflowCancellation = false;
+  private exitAfterWorkflowCancellation: number | null = null;
   private readonly processSignalHandler = (): void => {
     if (this.options.workflowController.hasActiveRuns()) {
-      this.requestWorkflowCancellation();
+      this.requestWorkflowCancellation({
+        reason: "Workflow cancelled by Ctrl+C.",
+        message:
+          "[cycle:signal] Ctrl+C received, cancelling active workflow and exiting when the run stops...",
+        exitCode: InkCLIRenderer.SIGNAL_EXIT_CODE
+      });
+      return;
+    }
+
+    this.shutdown({
+      writeSummary: false,
+      exitProcess: true,
+      exitCode: 0
+    });
+  };
+  private readonly processQuitHandler = (): void => {
+    if (this.options.workflowController.hasActiveRuns()) {
+      this.requestWorkflowCancellation({
+        reason: "Workflow cancelled by quit key.",
+        message:
+          "[cycle:signal] q received, cancelling active workflow and exiting when the run stops...",
+        exitCode: 0
+      });
       return;
     }
 
@@ -626,11 +664,11 @@ export class InkCLIRenderer implements CLIRenderer {
     this.finalStatus.value = finalStatus;
     this.renderNow();
 
-    if (this.exitAfterWorkflowCancellation) {
+    if (this.exitAfterWorkflowCancellation !== null) {
       this.shutdown({
         writeSummary: true,
         exitProcess: true,
-        exitCode: InkCLIRenderer.SIGNAL_EXIT_CODE
+        exitCode: this.exitAfterWorkflowCancellation
       });
       return;
     }
@@ -678,7 +716,7 @@ export class InkCLIRenderer implements CLIRenderer {
     this.inkInstance = null;
     this.leaveAlternateScreen();
     this.started = false;
-    this.exitAfterWorkflowCancellation = false;
+    this.exitAfterWorkflowCancellation = null;
     this.interruptCancellationRequested = false;
 
     if (args.writeSummary) {
@@ -769,22 +807,26 @@ export class InkCLIRenderer implements CLIRenderer {
     });
   }
 
-  private requestWorkflowCancellation(): void {
+  private requestWorkflowCancellation(args: {
+    reason: string;
+    message: string;
+    exitCode: number;
+  }): void {
     if (this.interruptCancellationRequested) {
       return;
     }
 
     this.interruptCancellationRequested = true;
-    this.exitAfterWorkflowCancellation = true;
+    this.exitAfterWorkflowCancellation = args.exitCode;
     pushDebugLogLine(
       this.state,
-      "[cycle:signal] Ctrl+C received, cancelling active workflow and exiting when the run stops...",
+      args.message,
       Date.now(),
       TIMELINE_BUFFER_SIZE
     );
     this.scheduleRender();
 
-    Promise.resolve(this.options.workflowController.cancelActiveRuns("Workflow cancelled by Ctrl+C."))
+    Promise.resolve(this.options.workflowController.cancelActiveRuns(args.reason))
       .catch((error) => {
         pushDebugLogLine(
           this.state,
@@ -830,12 +872,15 @@ export class InkCLIRenderer implements CLIRenderer {
         columns={this.columns.value}
         rows={this.rows.value}
         finalStatus={this.finalStatus.value}
-        useColor={this.options.useColor}
-        colorTheme={this.options.colorTheme}
-        onInterrupt={() => {
-          this.processSignalHandler();
-        }}
-      />
+      useColor={this.options.useColor}
+      colorTheme={this.options.colorTheme}
+      onInterrupt={() => {
+        this.processSignalHandler();
+      }}
+      onQuit={() => {
+        this.processQuitHandler();
+      }}
+    />
     );
 
     if (this.inkInstance) {
