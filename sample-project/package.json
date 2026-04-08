@@ -10,11 +10,17 @@
     "start:line": "npm run build:library && CYCLE_LIVE=0 tsx ./src/main.ts",
     "start:ink": "npm run build:library && CYCLE_RENDER_MODE=ink tsx ./src/main.ts",
     "start:stream": "npm run build:library && tsx ./src/main-stream.ts",
+    "start:java-jsp": "npm run build:library && tsx ./src/main-java-jsp.ts",
+    "start:java-jsp:line": "npm run build:library && CYCLE_RENDER_MODE=line tsx ./src/main-java-jsp.ts",
+    "start:java-jsp:ink": "npm run build:library && OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_RENDER_MODE=ink tsx ./src/main-java-jsp.ts",
+    "start:java-jsp:failure": "npm run build:library && SAMPLE_FORCE_VALIDATION_FAIL=1 CYCLE_RENDER_MODE=line tsx ./src/main-java-jsp.ts",
     "start:sub": "npm run build:library && tsx ./src/main-sub-workflow.ts",
     "start:sub:line": "npm run build:library && CYCLE_LIVE=0 tsx ./src/main-sub-workflow.ts",
     "start:sub:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts"
   },
   "dependencies": {
+    "@leflect-java/cli": "0.1.4",
+    "@leflect-java/core": "0.1.4",
     "agentic-task-kit": "file:..",
     "cross-env": "^10.1.0"
   },
