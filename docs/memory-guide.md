@@ -207,14 +207,47 @@ Create -> Update -> Merge -> Compress -> Expire
 현재 구현 기준:
 - importance `< 0.6` 이면 discard
 - 같은 id 는 overwrite
-- 유사 record 는 merge
+- 유사 record 는 기본적으로 overwrite
+- 유사 record 동작은 `overwrite | merge | discard` 로 설정할 수 있다
 - 반복 task raw event 는 compress
 - 오래된 record 는 archive
 - importance `< 0.3` 이면 delete
 
+전역 설정 예시:
+
+```ts
+const cycle = createCycle({
+  memoryWritePolicy: {
+    similarWriteAction: "merge"
+  }
+});
+```
+
+개별 write override 예시:
+
+```ts
+await ctx.memory.write({
+  shard: "workflow",
+  kind: "summary",
+  payload: {
+    workflowId: ctx.workflowId,
+    currentStep: "reflect",
+    history: [],
+    contextSummary: "Validated execution summary"
+  },
+  description: "Reflection summary",
+  workflowId: ctx.workflowId,
+  runId: ctx.runId,
+  sourceTask: "reflect",
+  phase: "REFLECTION",
+  taskType: "workflow",
+  similarWriteAction: "discard"
+});
+```
+
 검증 예시:
 - [memory.test.ts](../tests/memory.test.ts)
-- [memory-demo-workflow.ts](https://github.com/skyend/agentic-task-kit-axpm/blob/main/example-project/src/memory-demo-workflow.ts)
+- [memory-demo-workflow.ts](https://github.com/zerotosetta/agentic-task-kit-axpm/blob/main/example-project/src/memory-demo-workflow.ts)
 
 ## Ink 에서 보는 방법
 `CYCLE_RENDER_MODE=ink` 로 실행하면 우측 패널에서 아래 메모리 이벤트를 볼 수 있다.
@@ -222,6 +255,7 @@ Create -> Update -> Merge -> Compress -> Expire
 - `memory.before_step`
 - `retrieval.performed`
 - `memory.write`
+- `memory.warning`
 - `memory.merge`
 - `memory.compress`
 - `memory.archive`
@@ -236,7 +270,7 @@ CYCLE_RENDER_MODE=ink npm run example
 AXPM demo:
 
 ```bash
-git clone https://github.com/skyend/agentic-task-kit-axpm.git
+git clone https://github.com/zerotosetta/agentic-task-kit-axpm.git
 cd agentic-task-kit-axpm/example-project
 npm run start:memory-demo:ink
 ```

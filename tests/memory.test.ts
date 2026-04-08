@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createObservedMemoryEngine,
   createWorkflowInput,
   DeterministicHashEmbeddingProvider,
+  ExecutionBroadcaster,
   InMemoryKVStore,
   InMemoryMemoryEngine,
   InMemoryVectorStore,
+  type ExecutionEvent,
   type KnowledgeMemory,
   type MemoryRecord,
   type UserMemory,
@@ -13,6 +16,7 @@ import {
 } from "../src/index.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const LARGE_CONTEXT_BLOCK = "repeated-memory-block ".repeat(40_000);
 
 describe("Memory Engine V2", () => {
   it("routes retrieval by fixed shard rules and respects context assembly", async () => {
@@ -85,6 +89,160 @@ describe("Memory Engine V2", () => {
     expect(workflowResult.assembledContext).toContain("[workflow/summary] Workflow summary");
   });
 
+  it("overwrites similar records by default, supports configurable actions, and emits warning events", async () => {
+    const observedEvents: ExecutionEvent[] = [];
+    const observedEngine = createObservedMemoryEngine({
+      engine: new InMemoryMemoryEngine(),
+      broadcaster: new ExecutionBroadcaster([
+        {
+          onEvent(event) {
+            observedEvents.push(event);
+          },
+        },
+      ]),
+      workflowId: "wf-similar",
+      runId: "run-similar",
+      now: () => Date.now(),
+    });
+
+    const first = await observedEngine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-similar",
+        currentStep: "collect-1",
+        history: [],
+        contextSummary: LARGE_CONTEXT_BLOCK,
+      } satisfies WorkflowMemory,
+      description: "Repeated workflow memory block for overwrite regression",
+      keywords: ["memory", "workflow", "issue-15"],
+      workflowId: "wf-similar",
+      runId: "run-similar",
+      sourceTask: "regression",
+      phase: "EXECUTION",
+      taskType: "workflow",
+    });
+    const second = await observedEngine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-similar",
+        currentStep: "collect-2",
+        history: [],
+        contextSummary: LARGE_CONTEXT_BLOCK,
+      } satisfies WorkflowMemory,
+      description: "Repeated workflow memory block for overwrite regression",
+      keywords: ["memory", "workflow", "issue-15"],
+      workflowId: "wf-similar",
+      runId: "run-similar",
+      sourceTask: "regression",
+      phase: "EXECUTION",
+      taskType: "workflow",
+    });
+
+    expect(first.action).toBe("create");
+    expect(second.action).toBe("overwrite");
+    expect(second.recordId).toBe(first.recordId);
+    expect(second.warningCode).toBe("similar_overwrite");
+    expect(
+      observedEvents.some(
+        (event) => event.type === "memory.warning" && event.meta?.code === "similar_overwrite",
+      ),
+    ).toBe(true);
+
+    const visibleRecords = await observedEngine.list({
+      shard: "workflow",
+      kind: "raw",
+      archived: false,
+    });
+    expect(
+      visibleRecords.filter((record) => record.workflowId === "wf-similar").map((record) => record.id),
+    ).toEqual([first.recordId]);
+
+    const mergeEngine = new InMemoryMemoryEngine({
+      writePolicy: {
+        similarWriteAction: "merge",
+      },
+    });
+    await mergeEngine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-merge",
+        currentStep: "collect-1",
+        history: [],
+        contextSummary: LARGE_CONTEXT_BLOCK,
+      } satisfies WorkflowMemory,
+      description: "Repeated workflow memory block for merge regression",
+      keywords: ["memory", "workflow", "issue-15"],
+      workflowId: "wf-merge",
+      runId: "run-merge",
+      sourceTask: "regression",
+      phase: "EXECUTION",
+      taskType: "workflow",
+    });
+    const merged = await mergeEngine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-merge",
+        currentStep: "collect-2",
+        history: [],
+        contextSummary: LARGE_CONTEXT_BLOCK,
+      } satisfies WorkflowMemory,
+      description: "Repeated workflow memory block for merge regression",
+      keywords: ["memory", "workflow", "issue-15"],
+      workflowId: "wf-merge",
+      runId: "run-merge",
+      sourceTask: "regression",
+      phase: "EXECUTION",
+      taskType: "workflow",
+    });
+    expect(merged.action).toBe("merge");
+    expect(merged.warningCode).toBe("similar_merge");
+
+    const discardEngine = new InMemoryMemoryEngine();
+    const created = await discardEngine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-discard",
+        currentStep: "collect-1",
+        history: [],
+        contextSummary: LARGE_CONTEXT_BLOCK,
+      } satisfies WorkflowMemory,
+      description: "Repeated workflow memory block for discard regression",
+      keywords: ["memory", "workflow", "issue-15"],
+      workflowId: "wf-discard",
+      runId: "run-discard",
+      sourceTask: "regression",
+      phase: "EXECUTION",
+      taskType: "workflow",
+    });
+    const discardedSimilar = await discardEngine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-discard",
+        currentStep: "collect-2",
+        history: [],
+        contextSummary: LARGE_CONTEXT_BLOCK,
+      } satisfies WorkflowMemory,
+      description: "Repeated workflow memory block for discard regression",
+      keywords: ["memory", "workflow", "issue-15"],
+      workflowId: "wf-discard",
+      runId: "run-discard",
+      sourceTask: "regression",
+      phase: "EXECUTION",
+      taskType: "workflow",
+      similarWriteAction: "discard",
+    });
+    expect(created.action).toBe("create");
+    expect(discardedSimilar.action).toBe("discard");
+    expect(discardedSimilar.targetId).toBe(created.recordId);
+    expect(discardedSimilar.warningCode).toBe("similar_discard");
+  });
+
   it("discards low-importance writes, compresses repeated task events, and archives stale records", async () => {
     const kvStore = new InMemoryKVStore();
     const vectorStore = new InMemoryVectorStore();
@@ -111,6 +269,7 @@ describe("Memory Engine V2", () => {
       importance: 0.2,
     });
     expect(discarded.action).toBe("discard");
+    expect(discarded.warningCode).toBe("low_importance_discard");
 
     const staleEmbedding = await embeddingProvider.embed("stale knowledge");
     const staleRecord: MemoryRecord = {

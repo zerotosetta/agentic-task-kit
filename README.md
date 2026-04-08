@@ -270,8 +270,9 @@ class ParentTask extends Task {
 - `ctx.memory` 는 더 이상 단순 key/value `MemoryStore` 가 아니라 shard/hook/lifecycle 기반 `MemoryEngine` 이다.
 - 모든 task 는 `memoryPhase` 와 `memoryTaskType` 을 명시해야 하고, runtime 이 자동으로 `beforeStep()` retrieval 과 `afterStep()` write 를 호출한다.
 - 기본 구현은 `InMemoryMemoryEngine` + `InMemoryKVStore` + `InMemoryVectorStore` + `InMemoryGraphStore` 조합이다.
+- 유사 memory write 는 기본적으로 기존 record 를 overwrite 하고, `createCycle({ memoryWritePolicy: { similarWriteAction } })` 또는 `ctx.memory.write({ similarWriteAction })` 로 `overwrite | merge | discard` 를 설정할 수 있다.
 - `RunOptions.memoryInjection` 은 `MemoryRecordInput[]` 를 받고, `rag` 문서는 `knowledge/raw` record 로 주입된다.
-- Ink TUI 우측 패널에는 task log, provider HTTP debug log 뿐 아니라 retrieval / write / compress / archive / expire 메모리 이벤트도 구조화되어 표시된다.
+- Ink TUI 우측 패널에는 task log, provider HTTP debug log 뿐 아니라 retrieval / write / compress / archive / expire / warning 메모리 이벤트도 구조화되어 표시된다.
 
 ## OpenAI-compatible provider quick usage
 ```ts

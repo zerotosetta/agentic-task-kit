@@ -721,6 +721,7 @@ export function reduceExecutionEvent(
     case "memory.after_step":
     case "retrieval.performed":
     case "memory.write":
+    case "memory.warning":
     case "memory.merge":
     case "memory.archive":
     case "memory.expire":
@@ -854,14 +855,20 @@ export function buildMemoryTimelineText(event: ExecutionEvent): string {
       return `${prefix} after ${taskName} task=${taskRecordAction} workflow=${workflowRecordAction} compressed=${compressedIds}`;
     }
     case "memory.write":
+    case "memory.warning":
     case "memory.merge":
     case "memory.compress":
     case "memory.archive":
     case "memory.expire": {
+      const code = typeof event.meta?.code === "string" ? ` code=${event.meta.code}` : "";
       const recordId = typeof event.meta?.recordId === "string" ? event.meta.recordId : "";
       const targetId =
         typeof event.meta?.targetId === "string" ? ` target=${event.meta.targetId}` : "";
       const reason = typeof event.meta?.reason === "string" ? ` ${event.meta.reason}` : "";
+      const similarityScore =
+        typeof event.meta?.similarityScore === "number"
+          ? ` similarity=${event.meta.similarityScore.toFixed(2)}`
+          : "";
       const ids = [
         stringifyMetaValue(event.meta?.archivedIds),
         stringifyMetaValue(event.meta?.expiredIds),
@@ -872,7 +879,7 @@ export function buildMemoryTimelineText(event: ExecutionEvent): string {
         .join("|");
       return `${prefix} ${event.type.replace("memory.", "")} ${recordId}${targetId}${
         ids ? ` ids=${ids}` : ""
-      }${reason}`.trim();
+      }${code}${similarityScore}${reason}`.trim();
     }
     default:
       return `${prefix} ${event.summary}`;
@@ -891,7 +898,8 @@ export function pushMemoryTimelineEvent(
   state.timeline.push({
     id: `memory:${event.type}:${event.timestamp}:${state.timeline.length}`,
     timestamp: event.timestamp,
-    level: event.type === "memory.expire" ? "warn" : "info",
+    level:
+      event.type === "memory.expire" || event.type === "memory.warning" ? "warn" : "info",
     source: "memory",
     ...(taskName !== undefined ? { taskName } : {}),
     text: buildMemoryTimelineText(event)
