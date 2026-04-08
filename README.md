@@ -114,6 +114,7 @@ OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_REN
 - line mode 는 warning/error task log meta 를 `...` 없이 전체 출력
 - workflow 실행 중 `Ctrl+C`: 현재 active workflow 와 sub-workflow 에 graceful cancel signal 전파 후, run 종료 시 Ink terminal reset + 프로세스 종료
 - idle 상태 `Ctrl+C`: 즉시 Ink terminal reset 후 프로세스 종료
+- 위 `Ctrl+C` 동작은 process `SIGINT` 와 Ink raw input 경로 양쪽에서 동일하게 적용된다
 
 interactive TTY 가 아니면 `ink` 모드는 `jsonl` 로 자동 fallback 된다.
 

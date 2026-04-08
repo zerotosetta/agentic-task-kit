@@ -61,6 +61,7 @@ type InkRendererScreenProps = {
   finalStatus: "success" | "fail" | undefined;
   useColor: boolean;
   colorTheme: ResolvedTaskLogColorTheme;
+  onInterrupt?: () => void;
 };
 
 const DEFAULT_COLUMNS = 100;
@@ -70,6 +71,19 @@ const RIGHT_MIN_WIDTH = 42;
 const HISTORY_BUFFER_SIZE = 240;
 const TIMELINE_BUFFER_SIZE = 480;
 const TASK_BOX_INNER_WIDTH = 16;
+
+type InkInputKey = {
+  ctrl?: boolean;
+  name?: string;
+  sequence?: string;
+  tab?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+  pageUp?: boolean;
+  pageDown?: boolean;
+  home?: boolean;
+  end?: boolean;
+};
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -368,13 +382,22 @@ export function reduceInkUIState(
   }
 }
 
+export function isInkInterruptInput(input: string, key: InkInputKey): boolean {
+  if (input === "\u0003" || key.sequence === "\u0003") {
+    return true;
+  }
+
+  return key.ctrl === true && (input.toLowerCase() === "c" || key.name === "c");
+}
+
 export function InkRendererScreen({
   state,
   columns,
   rows,
   finalStatus,
   useColor,
-  colorTheme
+  colorTheme,
+  onInterrupt
 }: InkRendererScreenProps): ReactElement {
   const [uiState, setUiState] = useState<InkUIState>({
     focusedPane: "right",
@@ -413,6 +436,11 @@ export function InkRendererScreen({
   }, [metrics.leftMaxScroll, metrics.rightMaxScroll, metrics.pageSize]);
 
   useInput((input, key) => {
+    if (isInkInterruptInput(input, key)) {
+      onInterrupt?.();
+      return;
+    }
+
     if (key.tab || input === "\t") {
       setUiState((current) => reduceInkUIState(current, { type: "focus.toggle" }, metrics));
       return;
@@ -804,6 +832,9 @@ export class InkCLIRenderer implements CLIRenderer {
         finalStatus={this.finalStatus.value}
         useColor={this.options.useColor}
         colorTheme={this.options.colorTheme}
+        onInterrupt={() => {
+          this.processSignalHandler();
+        }}
       />
     );
 

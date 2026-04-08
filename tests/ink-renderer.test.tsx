@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_TASK_LOG_COLOR_THEME } from "../src/renderer-colors.js";
 import {
   InkRendererScreen,
+  isInkInterruptInput,
   reduceInkUIState,
   type InkUIState
 } from "../src/ink-renderer.js";
@@ -170,6 +171,13 @@ function createInkState(): RendererState {
 }
 
 describe("Ink renderer screen", () => {
+  it("detects Ctrl+C in raw input and control-key forms", () => {
+    expect(isInkInterruptInput("\u0003", {})).toBe(true);
+    expect(isInkInterruptInput("c", { ctrl: true, name: "c" })).toBe(true);
+    expect(isInkInterruptInput("C", { ctrl: true, name: "c" })).toBe(true);
+    expect(isInkInterruptInput("c", { ctrl: false, name: "c" })).toBe(false);
+  });
+
   it("renders workflow flowchart, branch nesting, task durations, and logs", async () => {
     const state = createInkState();
     const instance = render(
@@ -242,6 +250,32 @@ describe("Ink renderer screen", () => {
       await flushInk();
       expect(instance.lastFrame()).toContain("follow=on");
       expect(instance.lastFrame()).toContain("[REQ] gemini POST");
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it("invokes the interrupt callback when raw Ctrl+C input is received", async () => {
+    const state = createInkState();
+    let interrupted = 0;
+    const instance = render(
+      <InkRendererScreen
+        state={state}
+        columns={110}
+        rows={18}
+        finalStatus={undefined}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
+        onInterrupt={() => {
+          interrupted += 1;
+        }}
+      />
+    );
+
+    try {
+      instance.stdin.write("\u0003");
+      await flushInk();
+      expect(interrupted).toBe(1);
     } finally {
       instance.unmount();
     }
