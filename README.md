@@ -142,6 +142,11 @@ npm run build:bundle
 npm run build
 ```
 
+## Release
+- release source of truth 는 GitHub Actions workflow `Publish npm package` 와 [CHANGELOG.md](./CHANGELOG.md) 다.
+- `workflow_dispatch` actual publish 는 version bump, `CHANGELOG.md` 신규 section 생성, npm publish, release commit/tag push, GitHub Release body 동기화까지 한 번에 수행한다.
+- `dry_run=true` 는 preview version 과 release notes 를 계산하지만 source file, commit, tag 는 남기지 않는다.
+
 ## Examples
 - baseline sample workflow:
 ```bash

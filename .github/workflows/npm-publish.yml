@@ -71,9 +71,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Prepare release version
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
+        if: github.event_name == 'workflow_dispatch'
         id: release_version
-        run: npm run release:prepare-version -- "${{ github.event.inputs.version_bump }}"
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm run release:prepare-version -- "${{ github.event.inputs.version_bump }}" --preview-only
+          else
+            npm run release:prepare-version -- "${{ github.event.inputs.version_bump }}"
+          fi
+
+      - name: Generate release changelog
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          args=(--version "${{ steps.release_version.outputs.version }}" --notes-file .release-notes.md)
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          npm run release:update-changelog -- "${args[@]}"
+
+      - name: Preview release changelog
+        if: github.event_name == 'workflow_dispatch'
+        run: cat .release-notes.md
 
       - name: Build all-in-one publish artifact
         run: npm run build:all-in-one
@@ -105,11 +123,23 @@ jobs:
           RELEASE_TAG: ${{ steps.release_version.outputs.tag }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          git add package.json package-lock.json
+          git add package.json package-lock.json CHANGELOG.md
           git commit -m "chore(release): ${RELEASE_TAG}"
           git tag "${RELEASE_TAG}"
           git push origin "HEAD:${DEFAULT_BRANCH}"
           git push origin "${RELEASE_TAG}"
+
+      - name: Create or update GitHub Release
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_version.outputs.tag }}
+        run: |
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --title "${RELEASE_TAG}" --notes-file .release-notes.md
+          else
+            gh release create "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --title "${RELEASE_TAG}" --notes-file .release-notes.md
+          fi
 
       - name: Publish to npm from tag push
         if: startsWith(github.ref, 'refs/tags/v')
