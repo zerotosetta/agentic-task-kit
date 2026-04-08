@@ -523,6 +523,7 @@ type InkRendererResolvedOptions = Required<
 };
 
 export class InkCLIRenderer implements CLIRenderer {
+  private static readonly SIGNAL_EXIT_CODE = 130;
   private readonly options: InkRendererResolvedOptions;
   private readonly state = createInitialRendererState();
   private readonly columns: { value: number };
@@ -535,6 +536,7 @@ export class InkCLIRenderer implements CLIRenderer {
   private debugLineReader: ReadLineInterface | null = null;
   private resizeHandler: (() => void) | null = null;
   private interruptCancellationRequested = false;
+  private exitAfterWorkflowCancellation = false;
   private readonly processSignalHandler = (): void => {
     if (this.options.workflowController.hasActiveRuns()) {
       this.requestWorkflowCancellation();
@@ -596,6 +598,15 @@ export class InkCLIRenderer implements CLIRenderer {
     this.finalStatus.value = finalStatus;
     this.renderNow();
 
+    if (this.exitAfterWorkflowCancellation) {
+      this.shutdown({
+        writeSummary: true,
+        exitProcess: true,
+        exitCode: InkCLIRenderer.SIGNAL_EXIT_CODE
+      });
+      return;
+    }
+
     if (this.options.persistAfterCompletion) {
       return;
     }
@@ -639,6 +650,8 @@ export class InkCLIRenderer implements CLIRenderer {
     this.inkInstance = null;
     this.leaveAlternateScreen();
     this.started = false;
+    this.exitAfterWorkflowCancellation = false;
+    this.interruptCancellationRequested = false;
 
     if (args.writeSummary) {
       this.writeFinalSummary();
@@ -734,9 +747,10 @@ export class InkCLIRenderer implements CLIRenderer {
     }
 
     this.interruptCancellationRequested = true;
+    this.exitAfterWorkflowCancellation = true;
     pushDebugLogLine(
       this.state,
-      "[cycle:signal] Ctrl+C received, cancelling active workflow...",
+      "[cycle:signal] Ctrl+C received, cancelling active workflow and exiting when the run stops...",
       Date.now(),
       TIMELINE_BUFFER_SIZE
     );
@@ -750,6 +764,11 @@ export class InkCLIRenderer implements CLIRenderer {
           Date.now(),
           TIMELINE_BUFFER_SIZE
         );
+        this.shutdown({
+          writeSummary: false,
+          exitProcess: true,
+          exitCode: 1
+        });
       })
       .finally(() => {
         this.interruptCancellationRequested = false;
@@ -758,6 +777,10 @@ export class InkCLIRenderer implements CLIRenderer {
   }
 
   private scheduleRender(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (this.pendingRender) {
       return;
     }
@@ -769,6 +792,10 @@ export class InkCLIRenderer implements CLIRenderer {
   }
 
   private renderNow(): void {
+    if (!this.started) {
+      return;
+    }
+
     const tree = (
       <InkRendererScreen
         state={this.state}

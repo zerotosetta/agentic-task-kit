@@ -134,4 +134,4 @@ OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_REN
 - child workflow: `service-analysis`
 - branch id: `branch.service-analysis`
 
-Ink mode 에서는 parent 아래에 child workflow branch 가 이어서 렌더링되고, 각 task box 에 task 이름과 소요시간이 함께 표시된다. workflow 실행 중 `Ctrl+C` 를 누르면 현재 active workflow 와 child workflow 에 cancel signal 이 먼저 전달되고, workflow 가 더 이상 없을 때 다음 `Ctrl+C` 가 Ink session 을 닫고 프로세스를 종료한다.
+Ink mode 에서는 parent 아래에 child workflow branch 가 이어서 렌더링되고, 각 task box 에 task 이름과 소요시간이 함께 표시된다. workflow 실행 중 `Ctrl+C` 를 누르면 현재 active workflow 와 child workflow 에 graceful cancel signal 이 먼저 전달되고, run 종료가 관측되는 즉시 Ink session 이 닫히고 프로세스가 종료된다.
