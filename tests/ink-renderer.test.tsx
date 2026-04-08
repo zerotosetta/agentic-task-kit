@@ -5,6 +5,7 @@ import { DEFAULT_TASK_LOG_COLOR_THEME } from "../src/renderer-colors.js";
 import {
   InkRendererScreen,
   isInkInterruptInput,
+  isInkQuitInput,
   reduceInkUIState,
   type InkUIState
 } from "../src/ink-renderer.js";
@@ -178,6 +179,12 @@ describe("Ink renderer screen", () => {
     expect(isInkInterruptInput("c", { ctrl: false, name: "c" })).toBe(false);
   });
 
+  it("detects q as the explicit quit key", () => {
+    expect(isInkQuitInput("q", {})).toBe(true);
+    expect(isInkQuitInput("Q", {})).toBe(true);
+    expect(isInkQuitInput("q", { ctrl: true, name: "q" })).toBe(false);
+  });
+
   it("renders workflow flowchart, branch nesting, task durations, and logs", async () => {
     const state = createInkState();
     const instance = render(
@@ -276,6 +283,32 @@ describe("Ink renderer screen", () => {
       instance.stdin.write("\u0003");
       await flushInk();
       expect(interrupted).toBe(1);
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it("invokes the quit callback when q is pressed", async () => {
+    const state = createInkState();
+    let quitCount = 0;
+    const instance = render(
+      <InkRendererScreen
+        state={state}
+        columns={110}
+        rows={18}
+        finalStatus={undefined}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
+        onQuit={() => {
+          quitCount += 1;
+        }}
+      />
+    );
+
+    try {
+      instance.stdin.write("q");
+      await flushInk();
+      expect(quitCount).toBe(1);
     } finally {
       instance.unmount();
     }
