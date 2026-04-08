@@ -9,14 +9,17 @@ import type {
   GraphStore,
   KVStore,
   KnowledgeMemory,
+  MemoryFlushReport,
   LifecycleReport,
   MemoryEngine,
   MemoryKind,
   MemoryPhase,
   MemoryRecord,
+  MemoryRecordFilter,
   MemoryRecordInput,
   MemoryShard,
   MemorySimilarWriteAction,
+  MemoryStats,
   MemoryTaskType,
   MemoryWritePolicy,
   MemoryWriteReport,
@@ -204,6 +207,18 @@ export class InMemoryGraphStore implements GraphStore {
     }>
   > {
     return this.edges.get(id) ?? [];
+  }
+
+  async delete(id: string): Promise<void> {
+    this.edges.delete(id);
+    for (const [key, value] of this.edges.entries()) {
+      const next = value.filter((edge) => edge.from !== id && edge.to !== id);
+      if (next.length === 0) {
+        this.edges.delete(key);
+        continue;
+      }
+      this.edges.set(key, next);
+    }
   }
 }
 
@@ -536,12 +551,113 @@ export class InMemoryMemoryEngine implements MemoryEngine {
     };
   }
 
-  async list(args?: {
-    shard?: MemoryShard;
-    kind?: MemoryKind;
-    archived?: boolean;
-  }): Promise<MemoryRecord[]> {
-    return this.kvStore.list(args);
+  async getStats(filter: MemoryRecordFilter = {}): Promise<MemoryStats> {
+    const active = await this.list({
+      ...filter,
+      archived: false
+    });
+    const archived = await this.list({
+      ...filter,
+      archived: true
+    });
+    const records = [...active, ...archived];
+
+    const byShard = createShardStats();
+    const byKind = createKindStats();
+
+    for (const record of records) {
+      const shardStats = byShard[record.shard];
+      shardStats.total += 1;
+      shardStats[record.kind] += 1;
+      if (record.archivedAt) {
+        shardStats.archived += 1;
+      } else {
+        shardStats.active += 1;
+      }
+
+      const kindStats = byKind[record.kind];
+      kindStats.total += 1;
+      if (record.archivedAt) {
+        kindStats.archived += 1;
+      } else {
+        kindStats.active += 1;
+      }
+    }
+
+    const heapUsage = process.memoryUsage();
+    return {
+      heap: {
+        rss: heapUsage.rss,
+        heapTotal: heapUsage.heapTotal,
+        heapUsed: heapUsage.heapUsed,
+        external: heapUsage.external,
+        arrayBuffers: heapUsage.arrayBuffers
+      },
+      totalRecords: records.length,
+      activeRecords: active.length,
+      archivedRecords: archived.length,
+      byShard,
+      byKind
+    };
+  }
+
+  async flush(filter: MemoryRecordFilter = {}): Promise<MemoryFlushReport> {
+    const deleteArchived = filter.archived !== false;
+    const deleteActive = filter.archived !== true;
+    const deletedIds: string[] = [];
+    const deletedArchivedIds: string[] = [];
+
+    const purge = async (record: MemoryRecord, archived: boolean): Promise<void> => {
+      await this.kvStore.delete(record.id);
+      await this.vectorStore.delete(record.id, archived);
+      await this.graphStore.delete(record.id);
+      if (archived) {
+        deletedArchivedIds.push(record.id);
+      } else {
+        deletedIds.push(record.id);
+      }
+    };
+
+    if (deleteActive) {
+      const activeRecords = await this.list({
+        ...filter,
+        archived: false
+      });
+      for (const record of activeRecords) {
+        await purge(record, false);
+      }
+    }
+
+    if (deleteArchived) {
+      const archivedRecords = await this.list({
+        ...filter,
+        archived: true
+      });
+      for (const record of archivedRecords) {
+        await purge(record, true);
+      }
+    }
+
+    const remainingActive = (await this.kvStore.list({ archived: false })).length;
+    const remainingArchived = (await this.kvStore.list({ archived: true })).length;
+
+    return {
+      deletedIds,
+      deletedArchivedIds,
+      remainingActive,
+      remainingArchived,
+      filters: { ...filter }
+    };
+  }
+
+  async list(args: MemoryRecordFilter = {}): Promise<MemoryRecord[]> {
+    const base = await this.kvStore.list({
+      ...(args.shard ? { shard: args.shard } : {}),
+      ...(args.kind ? { kind: args.kind } : {}),
+      ...(args.archived !== undefined ? { archived: args.archived } : {})
+    });
+
+    return base.filter((record) => matchesRecordFilter(record, args));
   }
 
   private async buildWorkflowSummaryRecord(input: AfterStepInput): Promise<MemoryRecordInput> {
@@ -802,6 +918,12 @@ export function createObservedMemoryEngine(args: ObservedMemoryEngineArgs): Memo
       });
       return result;
     },
+    async getStats(filter) {
+      return args.engine.getStats(filter);
+    },
+    async flush(filter) {
+      return args.engine.flush(filter);
+    },
     async runLifecycle(now) {
       const report = await args.engine.runLifecycle(now);
       if (report.compressedIds.length > 0) {
@@ -846,6 +968,55 @@ export function createObservedMemoryEngine(args: ObservedMemoryEngineArgs): Memo
     async list(query) {
       return args.engine.list(query);
     }
+  };
+}
+
+function matchesRecordFilter(record: MemoryRecord, filter: MemoryRecordFilter): boolean {
+  if (filter.shard && record.shard !== filter.shard) {
+    return false;
+  }
+
+  if (filter.kind && record.kind !== filter.kind) {
+    return false;
+  }
+
+  if (filter.archived === true && !record.archivedAt) {
+    return false;
+  }
+
+  if (filter.archived === false && record.archivedAt) {
+    return false;
+  }
+
+  if (filter.workflowId && record.workflowId !== filter.workflowId) {
+    return false;
+  }
+
+  if (filter.runId && record.runId !== filter.runId) {
+    return false;
+  }
+
+  if (filter.sourceTask && record.sourceTask !== filter.sourceTask) {
+    return false;
+  }
+
+  return true;
+}
+
+function createShardStats(): MemoryStats["byShard"] {
+  return {
+    user: { total: 0, active: 0, archived: 0, raw: 0, summary: 0 },
+    task: { total: 0, active: 0, archived: 0, raw: 0, summary: 0 },
+    workflow: { total: 0, active: 0, archived: 0, raw: 0, summary: 0 },
+    system: { total: 0, active: 0, archived: 0, raw: 0, summary: 0 },
+    knowledge: { total: 0, active: 0, archived: 0, raw: 0, summary: 0 }
+  };
+}
+
+function createKindStats(): MemoryStats["byKind"] {
+  return {
+    raw: { total: 0, active: 0, archived: 0 },
+    summary: { total: 0, active: 0, archived: 0 }
   };
 }
 

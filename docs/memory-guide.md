@@ -94,6 +94,36 @@ const retrieved = await ctx.memory.retrieve({
 - 한 task 안에서 서로 다른 shard routing 을 여러 번 써야 할 때
 - 검색 결과 자체를 artifact 나 보고서로 남기고 싶을 때
 
+## 메모리 stats 와 flush
+issue `#15` 후속 보강으로 `ctx.memory.getStats()` 와 `CycleRunResult.flushMemory()` 를 사용할 수 있다.
+
+task 안에서 현재 workflow/run 기준 heap 과 record 수를 보려면:
+
+```ts
+const stats = await ctx.memory.getStats({
+  workflowId: ctx.workflowId,
+  runId: ctx.runId
+});
+
+ctx.log.info("memory stats", {
+  heapUsed: stats.heap.heapUsed,
+  totalRecords: stats.totalRecords,
+  workflowRecords: stats.byShard.workflow.total
+});
+```
+
+run 이 끝난 뒤 현재 workflow/run memory 를 비우려면:
+
+```ts
+const result = await cycle.run("report", createWorkflowInput(input));
+const flushReport = await result.flushMemory();
+```
+
+주의:
+- `ctx.memory.flush()` 는 engine surface 이므로 filter 를 주지 않으면 더 넓은 범위를 지울 수 있다.
+- 보통 task 안에서는 `workflowId`, `runId` filter 를 같이 주는 편이 안전하다.
+- `result.flushMemory()` 는 현재 run 범위만 대상으로 한다.
+
 ## 명시적 write
 automatic `afterStep()` write 가 있더라도, task 의미를 가진 요약/결정/산출물은 task 안에서 `ctx.memory.write()` 로 직접 저장하는 편이 좋다.
 

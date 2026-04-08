@@ -319,6 +319,7 @@ class ParentTask extends Task {
 - 모든 task 는 `memoryPhase` 와 `memoryTaskType` 을 명시해야 하고, runtime 이 자동으로 `beforeStep()` retrieval 과 `afterStep()` write 를 호출한다.
 - 기본 구현은 `InMemoryMemoryEngine` + `InMemoryKVStore` + `InMemoryVectorStore` + `InMemoryGraphStore` 조합이다.
 - 유사 memory write 는 기본적으로 기존 record 를 overwrite 하고, `createCycle({ memoryWritePolicy: { similarWriteAction } })` 또는 `ctx.memory.write({ similarWriteAction })` 로 `overwrite | merge | discard` 를 설정할 수 있다.
+- `ctx.memory.getStats()` 로 heap usage 와 memory record 수를 볼 수 있고, `CycleRunResult.flushMemory()` 로 current workflow/run 범위 memory 를 정리할 수 있다.
 - `RunOptions.memoryInjection` 은 `MemoryRecordInput[]` 를 받고, `rag` 문서는 `knowledge/raw` record 로 주입된다.
 - Ink TUI 우측 패널에는 task log, provider HTTP debug log 뿐 아니라 retrieval / write / compress / archive / expire / warning 메모리 이벤트도 구조화되어 표시된다.
 

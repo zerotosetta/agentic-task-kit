@@ -497,4 +497,32 @@ describe("Cycle foundation MVP", () => {
     expect(tracker.snapshot().events.some((event) => event.type === "workflow.completed")).toBe(true);
     expect(tracker.snapshot().taskLogs.some((event) => event.message === "Artifact created")).toBe(true);
   });
+
+  it("exposes run-scoped memory stats and flushMemory() on the run result", async () => {
+    const memoryEngine = new InMemoryMemoryEngine();
+    const cycle = createCycle({
+      memoryEngine
+    });
+
+    cycle.register("report", ReportWorkflow);
+    const result = await cycle.run(
+      "report",
+      createWorkflowInput({
+        text: "Flush scoped memory after run result inspection."
+      })
+    );
+
+    expect(result.memory.stats.heap.heapUsed).toBeGreaterThan(0);
+    expect(result.memory.stats.totalRecords).toBeGreaterThan(0);
+    expect(result.memory.stats.byShard.workflow.total).toBeGreaterThan(0);
+
+    const flushReport = await result.flushMemory();
+    expect(flushReport.deletedIds.length + flushReport.deletedArchivedIds.length).toBeGreaterThan(0);
+
+    const remainingScoped = await memoryEngine.list({
+      workflowId: result.frame.workflowId,
+      runId: result.frame.runId
+    });
+    expect(remainingScoped).toHaveLength(0);
+  });
 });

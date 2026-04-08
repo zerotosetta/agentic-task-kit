@@ -243,6 +243,71 @@ describe("Memory Engine V2", () => {
     expect(discardedSimilar.warningCode).toBe("similar_discard");
   });
 
+  it("surfaces heap stats and flushes workflow-scoped records", async () => {
+    const engine = new InMemoryMemoryEngine();
+
+    await engine.write({
+      shard: "workflow",
+      kind: "raw",
+      payload: {
+        workflowId: "wf-flush",
+        currentStep: "collect",
+        history: [],
+        contextSummary: "workflow scoped memory"
+      } satisfies WorkflowMemory,
+      description: "Workflow scoped record for flush",
+      keywords: ["memory", "flush"],
+      workflowId: "wf-flush",
+      runId: "run-flush",
+      sourceTask: "flush-task",
+      phase: "EXECUTION",
+      taskType: "workflow",
+      importance: 0.9
+    });
+    await engine.write({
+      shard: "knowledge",
+      kind: "raw",
+      payload: {
+        id: "kb-global",
+        content: "Global knowledge",
+        embedding: [],
+        tags: ["knowledge"]
+      } satisfies KnowledgeMemory,
+      description: "Global knowledge record",
+      keywords: ["knowledge"],
+      phase: "PLANNING",
+      taskType: "default",
+      importance: 0.9
+    });
+
+    const scopedStats = await engine.getStats({
+      workflowId: "wf-flush",
+      runId: "run-flush"
+    });
+    expect(scopedStats.heap.heapUsed).toBeGreaterThan(0);
+    expect(scopedStats.totalRecords).toBe(1);
+    expect(scopedStats.byShard.workflow.total).toBe(1);
+
+    const flushReport = await engine.flush({
+      workflowId: "wf-flush",
+      runId: "run-flush"
+    });
+    expect(flushReport.deletedIds).toHaveLength(1);
+    expect(flushReport.deletedArchivedIds).toHaveLength(0);
+
+    const remainingScoped = await engine.list({
+      workflowId: "wf-flush",
+      runId: "run-flush"
+    });
+    expect(remainingScoped).toHaveLength(0);
+
+    const remainingKnowledge = await engine.list({
+      shard: "knowledge",
+      archived: false
+    });
+    expect(remainingKnowledge).toHaveLength(1);
+  });
+
   it("discards low-importance writes, compresses repeated task events, and archives stale records", async () => {
     const kvStore = new InMemoryKVStore();
     const vectorStore = new InMemoryVectorStore();
