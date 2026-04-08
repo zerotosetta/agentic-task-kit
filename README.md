@@ -29,14 +29,14 @@ npm install agentic-task-kit
 - failure stack trace rendering
 - log level color theme + config override
 - live rendering off line mode
-- sample `ReportWorkflow`
+- built-in example workflows: `ReportWorkflow`, `OpenAISummaryWorkflow`, `OpenAIStreamingSummaryWorkflow`
 
 ## 저장소 구성
 - `src/`: 라이브러리 소스 코드
 - `tests/`: unit / integration test
 - `scripts/`: example consumer runner
 - `sample-project/`: 로컬 file dependency 로 라이브러리를 소비하는 runnable example app
-- `issue-repro-lab/`: open issue 재연 전용 서브 프로젝트
+- `issue-repro-lab/`: fixed issue 재연/회귀 확인 전용 서브 프로젝트
 - `docs/`: 로컬 실행 및 runtime 참고 문서
 
 ## 시작하기
