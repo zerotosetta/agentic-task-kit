@@ -1,0 +1,16 @@
+{
+  "providerName": "gemini",
+  "apiKeyEnv": "GEMINI_API_KEY",
+  "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "defaultModel": "gemini-2.5-flash-lite",
+  "defaultHeaders": {
+    "X-Sample-Project-Java-Jsp": "true"
+  },
+  "httpDebugLogging": {
+    "enabled": true,
+    "includeHeaders": true,
+    "includeResponseHeaders": true
+  },
+  "timeoutMs": 20000,
+  "maxRetries": 2
+}

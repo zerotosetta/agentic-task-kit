@@ -1,11 +1,15 @@
 # Sample Project
 
 이 샘플 프로젝트는 `agentic-task-kit` 라이브러리를 로컬 file dependency 로 연결해서 사용하는 예제다.
-OpenAI-compatible config file, default headers, non-stream workflow, streaming workflow 를 각각 별도 진입점으로 보여준다.
+OpenAI-compatible config file, default headers, non-stream workflow, streaming workflow, sub-workflow, Java/JSP 5단계 Gemini 파이프라인을 각각 별도 진입점으로 보여준다.
 
 ## 구조
 - 설정 파일: [cycle.config.json](./cycle.config.json)
+- Java/JSP 설정 파일: [cycle.java-jsp.config.json](./cycle.java-jsp.config.json)
 - 진입점: [main.ts](./src/main.ts)
+- Java/JSP 진입점: [main-java-jsp.ts](./src/main-java-jsp.ts)
+- Java/JSP workflow: [java-jsp-modernization-workflow.ts](./src/java-jsp-modernization-workflow.ts)
+- Java/JSP 입력 workspace: [inputs/legacy-order-flow](./inputs/legacy-order-flow)
 
 ## 설치
 ```bash
@@ -41,6 +45,26 @@ sub workflow example in Ink mode:
 npm run start:sub:ink
 ```
 
+Java/JSP 5단계 Gemini example:
+```bash
+GEMINI_API_KEY=your_key_here npm run start:java-jsp
+```
+
+Java/JSP line renderer:
+```bash
+GEMINI_API_KEY=your_key_here npm run start:java-jsp:line
+```
+
+Java/JSP Ink renderer:
+```bash
+GEMINI_API_KEY=your_key_here npm run start:java-jsp:ink
+```
+
+Java/JSP validation failure path:
+```bash
+GEMINI_API_KEY=your_key_here npm run start:java-jsp:failure
+```
+
 streaming workflow:
 ```bash
 OPENAI_API_KEY=your_key_here npm run start:stream
@@ -72,6 +96,36 @@ Ink TUI 에서 provider debug 로그까지 우측 패널에 함께 보려면:
 ```bash
 OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_RENDER_MODE=ink npm run start
 ```
+
+## Java/JSP Gemini Example
+`src/main-java-jsp.ts` 는 실제 Java controller 와 JSP view workspace 를 Leflect 0.1.4 로 분석한 뒤, Gemini OpenAI-compatible endpoint 로 아래 5단계를 실행한다.
+
+1. 분석
+2. 검증
+3. 요구사항 추출
+4. 설계
+5. 재구현
+
+기본 config 우선순위:
+1. `CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH`
+2. `CYCLE_OPENAI_CONFIG_PATH`
+3. `sample-project/cycle.java-jsp.local.json`
+4. `sample-project/cycle.java-jsp.config.json`
+
+기본 템플릿은 `apiKeyEnv: "GEMINI_API_KEY"` 만 사용하므로 키를 커밋할 필요가 없다.
+
+출력은 `sample-project/generated/<workspace>-<timestamp>-<suffix>/` 아래에 생성된다.
+
+- `00-leflect-snapshot.json`
+- `01-analysis.json`
+- `02-validation.json`
+- `03-requirements.json`
+- `04-design.json`
+- `05-reimplementation.json`
+- `06-reimplementation/...`
+- `09-recovery.md` 실패 경로일 때만
+- `90-memory-snapshot.json`
+- `91-run-frame.json`
 
 ## Sub Workflow Example
 `src/main-sub-workflow.ts` 는 parent workflow 가 `ctx.runSubWorkflow()` 로 child workflow 를 branch 로 호출하는 예제다.

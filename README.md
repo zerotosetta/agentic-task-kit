@@ -35,6 +35,7 @@ npm install agentic-task-kit
 - `src/`: 라이브러리 소스 코드
 - `tests/`: unit / integration test
 - `scripts/`: example consumer runner
+- `sample-project/`: 로컬 file dependency 로 라이브러리를 소비하는 runnable example app
 - `issue-repro-lab/`: open issue 재연 전용 서브 프로젝트
 - `docs/`: 로컬 실행 및 runtime 참고 문서
 
@@ -162,6 +163,12 @@ OPENAI_API_KEY=your_key_here npm run example:openai
 - OpenAI-compatible streaming workflow:
 ```bash
 OPENAI_API_KEY=your_key_here npm run example:openai:stream
+```
+- local sample-project Java/JSP 5-stage Gemini pipeline:
+```bash
+cd sample-project
+npm install
+GEMINI_API_KEY=your_key_here npm run start:java-jsp:line
 ```
 - AXPM-hosted memory demo workflow:
 ```bash
