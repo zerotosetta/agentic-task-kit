@@ -57,6 +57,34 @@ describe("CLI renderer", () => {
     expect(output).not.toContain("\u001B[");
   });
 
+  it("keeps full warning and error meta in line mode without ellipsis", () => {
+    const renderer = createCLIRenderer({
+      enabled: false,
+      stream: stream as unknown as NodeJS.WriteStream
+    });
+
+    const longError =
+      "design JSON parsing failed: Expected ',' or ']' after array element in JSON at position 1526 (line 1 column 1527) while parsing the repaired response body.";
+
+    renderer.start();
+    renderer.onTaskLog?.({
+      timestamp: Date.UTC(2026, 2, 28, 12, 0, 2),
+      workflowId: "report",
+      runId: "run_meta",
+      taskName: "writeDesign",
+      level: "warn",
+      message: "Malformed JSON response detected; requesting repair",
+      meta: {
+        label: "design",
+        error: longError
+      }
+    });
+    renderer.stop("fail");
+
+    expect(output).toContain(longError);
+    expect(output).not.toContain('error="design JSON parsing failed: Expected \',\' or \']\' after array element in JSON at position 1526 ...');
+  });
+
   it("uses compact mode redraw when enabled in a tty-like stream", async () => {
     const ttyLike = stream as unknown as NodeJS.WriteStream & { isTTY?: boolean };
     ttyLike.isTTY = true;
