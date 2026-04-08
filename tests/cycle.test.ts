@@ -137,6 +137,50 @@ describe("Cycle foundation MVP", () => {
     );
   });
 
+  it("captures task source locations in failure events", async () => {
+    class ThrowingLocationTask extends Task {
+      name = "throwingLocation";
+      memoryPhase = "EXECUTION" as const;
+      memoryTaskType = "debug" as const;
+
+      async run(_ctx: WorkflowContext): Promise<TaskResult> {
+        throw new Error("Location test failure");
+      }
+    }
+
+    const ThrowingWorkflow: WorkflowDefinition = {
+      name: "throwing-location-workflow",
+      start: "throwingLocation",
+      end: "end",
+      tasks: {
+        throwingLocation: new ThrowingLocationTask()
+      },
+      transitions: {
+        throwingLocation: {
+          fail: "end"
+        }
+      }
+    };
+
+    const cycle = createCycle();
+    cycle.register("throwing-location-workflow", ThrowingWorkflow);
+    const result = await cycle.run("throwing-location-workflow", createWorkflowInput());
+
+    const failedEvent = result.history.events.find(
+      (event) => event.type === "task.failed" && event.taskName === "throwingLocation"
+    );
+
+    expect(failedEvent).toBeDefined();
+    expect(failedEvent?.meta?.sourceLocation).toEqual(
+      expect.objectContaining({
+        functionName: "ThrowingLocationTask.run",
+        line: expect.any(Number),
+        column: expect.any(Number),
+        display: expect.stringContaining("ThrowingLocationTask.run")
+      })
+    );
+  });
+
   it("cancels active workflows and propagates abort signals into ctx.ai.chat()", async () => {
     let observedSignal: AbortSignal | undefined;
 

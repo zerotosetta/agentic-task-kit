@@ -338,6 +338,7 @@ describe("Ink renderer screen", () => {
     try {
       await flushInk();
       const frame = instance.lastFrame();
+      expect(frame).toContain("[SOURCE] task-eight.ts:10:3");
       expect(frame).toContain("[STACK] Error: boom");
       expect(frame).toContain("TaskEight.run");
     } finally {
