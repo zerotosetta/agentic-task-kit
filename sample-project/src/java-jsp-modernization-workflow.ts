@@ -226,7 +226,17 @@ function toTaskFailure(taskName: string, error: unknown): TaskResult {
   return {
     status: "fail",
     error: {
-      message: error instanceof Error ? error.message : String(error)
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error
+        ? {
+            details: {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+              ...("cause" in error ? { cause: (error as { cause?: unknown }).cause } : {})
+            }
+          }
+        : {})
     }
   };
 }
