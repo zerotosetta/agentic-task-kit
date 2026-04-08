@@ -7,6 +7,7 @@
 - npm registry publish 권한이 있는 `NPM_AUTH_TOKEN` repository secret 이 설정되어 있어야 한다.
 - default branch 는 `main` 이어야 한다.
 - `package.json` 과 `package-lock.json` 은 workflow 가 자동으로 version bump 한다.
+- release notes 의 source of truth 는 repository root [`CHANGELOG.md`](../CHANGELOG.md) 다.
 - publish artifact 는 `.npm-package/` all-in-one bundle 이고, `dist/**/*.map` source map 은 제외된다.
 
 ## 권장 릴리스 경로
@@ -32,13 +33,16 @@
 - `npm run typecheck`
 - `npm test`
 - `npm run release:prepare-version -- <version_bump>`
+- `npm run release:update-changelog -- --version <next_version> --notes-file .release-notes.md`
 - `npm run build:all-in-one`
 - `npm pack ./.npm-package`
 - `npm publish ./.npm-package --access public --tag <npm_tag>`
 - 성공 시:
-  - `package.json`, `package-lock.json` 을 release commit 으로 반영
+  - `CHANGELOG.md` 를 새 release section 으로 갱신
+  - `package.json`, `package-lock.json`, `CHANGELOG.md` 를 release commit 으로 반영
   - `v<version>` tag 생성
   - branch 와 tag 를 origin 에 push
+  - 같은 changelog section 으로 GitHub Release 생성 또는 갱신
 
 ## Tag publish 경로
 `v*` tag push 도 publish trigger 로 지원한다.
@@ -57,7 +61,8 @@
 publish 전에 payload 와 gate 를 확인할 때는 `dry_run=true` 를 사용한다.
 
 dry-run 에서는:
-- version bump 하지 않음
+- preview version 만 계산하고 source file version 은 바꾸지 않음
+- changelog preview 와 `.release-notes.md` 만 생성하고 `CHANGELOG.md` 는 쓰지 않음
 - npm registry 업로드 하지 않음
 - release commit / tag push 하지 않음
 
@@ -65,6 +70,7 @@ dry-run 에서는:
 - install
 - typecheck
 - test
+- preview changelog generation
 - all-in-one bundle build
 - `npm pack`
 - `npm publish --dry-run`
@@ -87,7 +93,17 @@ version bump 스크립트만 따로 확인하려면:
 npm run release:prepare-version -- patch
 ```
 
-이 명령은 실제 파일을 바꾸므로, 로컬에서 실행했다면 commit 하거나 되돌려야 한다.
+preview version 만 확인하려면:
+
+```bash
+npm run release:prepare-version -- patch --preview-only
+```
+
+changelog 를 직접 갱신하려면:
+
+```bash
+npm run release:update-changelog -- --version 0.1.8
+```
 
 ## 실패 시 확인 포인트
 ### 1. `E403 You cannot publish over the previously published versions`
@@ -116,8 +132,10 @@ npm run release:prepare-version -- patch
 
 ## 배포 후 확인
 - npm registry 에 새 version 이 올라갔는지 확인
+- `CHANGELOG.md` 에 새 version section 이 반영됐는지 확인
 - GitHub release commit 이 `main` 에 반영됐는지 확인
 - `v<version>` tag 가 origin 에 생성됐는지 확인
+- GitHub Release body 가 changelog section 과 일치하는지 확인
 - 필요하면 published consumer sample 로 smoke test
 
 ## 운영 원칙

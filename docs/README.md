@@ -11,4 +11,4 @@
 - API or schema notes
 - troubleshooting / runbook
 - release guide
-- release notes
+- CHANGELOG.md

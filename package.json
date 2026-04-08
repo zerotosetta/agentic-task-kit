@@ -34,6 +34,7 @@
     "build:bundle": "node ./scripts/build-package.mjs",
     "build:all-in-one": "npm run build && node ./scripts/build-all-in-one-package.mjs",
     "release:prepare-version": "node ./scripts/prepare-release-version.mjs",
+    "release:update-changelog": "node ./scripts/update-changelog.mjs",
     "pack:all-in-one": "npm run build:all-in-one && npm pack ./.npm-package",
     "publish:all-in-one": "npm run build:all-in-one && npm publish ./.npm-package --access public",
     "publish:all-in-one:dry-run": "npm run build:all-in-one && npm publish ./.npm-package --access public --dry-run",

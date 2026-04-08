@@ -11,5 +11,6 @@ sample-project/cycle.java-jsp.local.json
 .venv/
 __pycache__/
 *.log
+.release-notes.md
 target/
 out/
