@@ -24,6 +24,10 @@ class RepeatedMemoryWriteTask extends Task {
 
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     const heapBefore = process.memoryUsage().heapUsed;
+    const statsBefore = await ctx.memory.getStats({
+      workflowId: ctx.workflowId,
+      runId: ctx.runId
+    });
     const dispositions: MemoryWriteDisposition[] = [];
     const similarWriteAction = getWorkflowInputValue(ctx.input, "similarWriteAction");
 
@@ -53,6 +57,10 @@ class RepeatedMemoryWriteTask extends Task {
     }
 
     const heapAfter = process.memoryUsage().heapUsed;
+    const statsAfter = await ctx.memory.getStats({
+      workflowId: ctx.workflowId,
+      runId: ctx.runId
+    });
     const records = await ctx.memory.list({
       shard: "workflow",
       archived: false
@@ -66,6 +74,8 @@ class RepeatedMemoryWriteTask extends Task {
       output: {
         heapBefore,
         heapAfter,
+        statsBefore,
+        statsAfter,
         dispositions,
         visibleIds
       }
@@ -97,14 +107,18 @@ async function executeIssue15Run(input: Record<string, unknown>) {
     | {
         heapBefore: number;
         heapAfter: number;
+        statsBefore: Awaited<ReturnType<WorkflowContext["memory"]["getStats"]>>;
+        statsAfter: Awaited<ReturnType<WorkflowContext["memory"]["getStats"]>>;
         dispositions: MemoryWriteDisposition[];
         visibleIds: string[];
       }
     | undefined;
   const warningEvents = result.history.events.filter((event) => event.type === "memory.warning");
+  const flushReport = await result.flushMemory();
 
   return {
     output,
+    flushReport,
     warningCodes: warningEvents
       .map((event) => event.meta?.code)
       .filter((value): value is string => typeof value === "string")
@@ -132,15 +146,21 @@ export async function runIssue15Repro(): Promise<IssueReproResult> {
       defaultDiscardCount > 0 &&
       defaultRun.output.heapAfter > defaultRun.output.heapBefore,
     rootCause:
-      "기존 원인은 heap 부족이 아니라 memory write heuristic 문제였다. 유사한 large record 를 반복 저장하면 novelty 가 급격히 낮아지고, importance 가 0.6 미만으로 떨어져 `write()` 가 조용히 `discard` 를 반환했다. 현재 기본 동작은 overwrite 로 수정됐고, discard 는 명시적인 similar-write policy 로만 발생한다.",
+      "기존 원인은 heap 부족이 아니라 memory write heuristic 문제였다. 유사한 large record 를 반복 저장하면 novelty 가 급격히 낮아지고, importance 가 0.6 미만으로 떨어져 `write()` 가 조용히 `discard` 를 반환했다. 현재 기본 동작은 overwrite 로 수정됐고, discard 는 명시적인 similar-write policy 로만 발생한다. 추가로 `ctx.memory.getStats()` 와 `CycleRunResult.flushMemory()` surface 로 heap/record 상태 확인과 workflow-scoped cleanup 이 가능하다.",
     evidence: {
       defaultHeapBefore: defaultRun.output?.heapBefore,
       defaultHeapAfter: defaultRun.output?.heapAfter,
+      defaultStatsBefore: defaultRun.output?.statsBefore,
+      defaultStatsAfter: defaultRun.output?.statsAfter,
       defaultDispositions: defaultRun.output?.dispositions,
       defaultVisibleIds: defaultRun.output?.visibleIds,
+      defaultFlushReport: defaultRun.flushReport,
       defaultWarningCodes: defaultRun.warningCodes,
+      configuredDiscardStatsBefore: configuredDiscardRun.output?.statsBefore,
+      configuredDiscardStatsAfter: configuredDiscardRun.output?.statsAfter,
       configuredDiscardDispositions: configuredDiscardRun.output?.dispositions,
       configuredDiscardVisibleIds: configuredDiscardRun.output?.visibleIds,
+      configuredDiscardFlushReport: configuredDiscardRun.flushReport,
       configuredDiscardWarningCodes: configuredDiscardRun.warningCodes,
       configuredDiscardCount
     }

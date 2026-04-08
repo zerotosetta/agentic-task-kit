@@ -229,6 +229,22 @@ const cycle = createCycle({
 });
 ```
 
+heap usage 와 record 수는 `ctx.memory.getStats()` 로 확인할 수 있다.
+
+```ts
+const stats = await ctx.memory.getStats({
+  workflowId: ctx.workflowId,
+  runId: ctx.runId
+});
+```
+
+run 완료 후 현재 workflow/run 메모리를 비우려면:
+
+```ts
+const result = await cycle.run("reflective-workflow", createWorkflowInput(input));
+await result.flushMemory();
+```
+
 ## AI provider 연결
 OpenAI-compatible provider 를 붙이면 task 내부에서 `ctx.ai.chat()` 과 `ctx.ai.chatStream()` 을 사용할 수 있다.
 

@@ -127,6 +127,48 @@ export type MemoryRecordInput = {
   similarWriteAction?: MemorySimilarWriteAction;
 };
 
+export type MemoryRecordFilter = {
+  shard?: MemoryShard;
+  kind?: MemoryKind;
+  archived?: boolean;
+  workflowId?: string;
+  runId?: string;
+  sourceTask?: string;
+};
+
+export type MemoryHeapStats = {
+  rss: number;
+  heapTotal: number;
+  heapUsed: number;
+  external: number;
+  arrayBuffers: number;
+};
+
+export type MemoryStats = {
+  heap: MemoryHeapStats;
+  totalRecords: number;
+  activeRecords: number;
+  archivedRecords: number;
+  byShard: Record<
+    MemoryShard,
+    {
+      total: number;
+      active: number;
+      archived: number;
+      raw: number;
+      summary: number;
+    }
+  >;
+  byKind: Record<
+    MemoryKind,
+    {
+      total: number;
+      active: number;
+      archived: number;
+    }
+  >;
+};
+
 export type RetrieveRequest = {
   query: string;
   taskType: MemoryTaskType;
@@ -194,6 +236,14 @@ export type LifecycleReport = {
   expiredIds: string[];
 };
 
+export type MemoryFlushReport = {
+  deletedIds: string[];
+  deletedArchivedIds: string[];
+  remainingActive: number;
+  remainingArchived: number;
+  filters: MemoryRecordFilter;
+};
+
 export type BeforeStepInput = {
   workflowId: string;
   runId: string;
@@ -247,6 +297,7 @@ export interface GraphStore {
       meta?: Record<string, unknown>;
     }>
   >;
+  delete(id: string): Promise<void>;
 }
 
 export interface EmbeddingProvider {
@@ -259,12 +310,10 @@ export interface MemoryEngine {
   write(record: MemoryRecordInput): Promise<WriteDisposition>;
   get(id: string): Promise<MemoryRecord | null>;
   retrieve(request: RetrieveRequest): Promise<RetrieveResult>;
+  getStats(filter?: MemoryRecordFilter): Promise<MemoryStats>;
+  flush(filter?: MemoryRecordFilter): Promise<MemoryFlushReport>;
   runLifecycle(now?: number): Promise<LifecycleReport>;
-  list(args?: {
-    shard?: MemoryShard;
-    kind?: MemoryKind;
-    archived?: boolean;
-  }): Promise<MemoryRecord[]>;
+  list(args?: MemoryRecordFilter): Promise<MemoryRecord[]>;
 }
 
 export type Artifact = {
@@ -667,6 +716,7 @@ export type CycleRunMemorySnapshot = {
   activeRecords: MemoryRecord[];
   archivedRecords: MemoryRecord[];
   lifecycle: LifecycleReport;
+  stats: MemoryStats;
 };
 
 export type CycleRunArtifactSnapshot = {
@@ -678,6 +728,7 @@ export type CycleRunResult = {
   memory: CycleRunMemorySnapshot;
   artifacts: CycleRunArtifactSnapshot;
   history: ExecutionHistorySnapshot;
+  flushMemory: () => Promise<MemoryFlushReport>;
 };
 
 export interface Cycle extends WorkflowRuntimeController {

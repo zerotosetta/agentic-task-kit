@@ -457,12 +457,17 @@ async function collectRunResultSnapshot(args: {
   lifecycle: LifecycleReport;
   history: ExecutionHistoryTracker;
 }): Promise<CycleRunResult> {
-  const activeRecords = (await args.memory.list({ archived: false }))
+  const runScopedFilter = {
+    workflowId: args.frame.workflowId,
+    runId: args.frame.runId
+  } as const;
+  const activeRecords = (await args.memory.list({ ...runScopedFilter, archived: false }))
     .filter((record) => isRunScopedRecord(record, args.frame.workflowId, args.frame.runId))
     .sort(sortRecordsByTimestamp);
-  const archivedRecords = (await args.memory.list({ archived: true }))
+  const archivedRecords = (await args.memory.list({ ...runScopedFilter, archived: true }))
     .filter((record) => isRunScopedRecord(record, args.frame.workflowId, args.frame.runId))
     .sort(sortRecordsByTimestamp);
+  const stats = await args.memory.getStats(runScopedFilter);
 
   return {
     frame: args.frame,
@@ -470,7 +475,8 @@ async function collectRunResultSnapshot(args: {
       records: [...activeRecords, ...archivedRecords],
       activeRecords,
       archivedRecords,
-      lifecycle: args.lifecycle
+      lifecycle: args.lifecycle,
+      stats
     },
     artifacts: {
       artifacts: args.artifacts.map((artifact) => ({
@@ -478,7 +484,12 @@ async function collectRunResultSnapshot(args: {
         bytes: new Uint8Array(artifact.bytes)
       }))
     },
-    history: args.history.snapshot()
+    history: args.history.snapshot(),
+    flushMemory: async () =>
+      args.memory.flush({
+        workflowId: args.frame.workflowId,
+        runId: args.frame.runId
+      })
   };
 }
 

@@ -50,7 +50,8 @@
     "issue:repro:14": "npm --prefix ./issue-repro-lab run repro:issue-14",
     "issue:repro:15": "npm --prefix ./issue-repro-lab run repro:issue-15",
     "issue:repro:16": "npm --prefix ./issue-repro-lab run repro:issue-16",
-    "issue:repro:17": "npm --prefix ./issue-repro-lab run repro:issue-17"
+    "issue:repro:17": "npm --prefix ./issue-repro-lab run repro:issue-17",
+    "issue:repro:18": "npm --prefix ./issue-repro-lab run repro:issue-18"
   },
   "keywords": [
     "workflow",
