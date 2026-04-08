@@ -295,7 +295,7 @@ await ctx.ai.chat({
 
 별도 `ctx.log.info()` 를 쓰지 않아도 line / compact / ink renderer 에서 이 값들을 바로 볼 수 있다.
 
-task failure 시 renderer 는 summary 뿐 아니라 stack trace 도 같이 출력한다. line mode 는 `stack ...` 라인을 추가로 쓰고, compact/ink 는 failure panel 과 right log panel 에 stack line 을 함께 노출한다.
+task failure 시 renderer 는 summary 뿐 아니라 source file/line/column 과 stack trace 도 같이 출력한다. line mode 는 `task.failed ... at=src/file.ts:line:column`, `source ...`, `stack ...` 라인을 추가로 쓰고, compact/ink 는 failure panel, task history, right log panel 에 같은 위치 정보를 함께 노출한다.
 
 ## Renderer 색상 설정
 renderer 는 level 별 기본 색상 테마를 갖고, config file 과 runtime option 으로 override 할 수 있다.

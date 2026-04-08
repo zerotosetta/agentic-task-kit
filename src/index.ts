@@ -71,6 +71,7 @@ export type {
   CycleRunMemorySnapshot,
   CycleRunResult,
   CycleOptions,
+  ErrorSourceLocation,
   EmbeddingProvider,
   ExecutionEvent,
   ExecutionFrame,

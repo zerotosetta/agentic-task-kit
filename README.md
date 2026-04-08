@@ -27,6 +27,7 @@ npm install agentic-task-kit
 - compact CLI renderer
 - Ink 2-column TUI renderer
 - failure stack trace rendering
+- task failure source file/line/column rendering
 - log level color theme + config override
 - live rendering off line mode
 - built-in example workflows: `ReportWorkflow`, `OpenAISummaryWorkflow`, `OpenAIStreamingSummaryWorkflow`

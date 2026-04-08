@@ -190,6 +190,10 @@ describe("CLI renderer", () => {
     });
     renderer.stop("fail");
 
+    expect(output).toContain(
+      "[ERROR] task.failed generate boom at=generate.ts:11:7 GenerateTask.run"
+    );
+    expect(output).toContain("[ERROR] source generate.ts:11:7 GenerateTask.run");
     expect(output).toContain("[ERROR] stack Error: boom");
     expect(output).toContain("GenerateTask.run");
     expect(output).toContain("demoFrame");

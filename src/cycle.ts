@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import { createUnavailableAIProvider } from "./ai.js";
 import { createObservedArtifactStore, InMemoryArtifactStore } from "./artifacts.js";
+import {
+  extractSourceLocationFromErrorDetails,
+  extractSourceLocationFromStack
+} from "./error-location.js";
 import { toWorkflowCancellationError } from "./errors.js";
 import { ExecutionBroadcaster } from "./events.js";
 import { createExecutionHistoryTracker } from "./history.js";
@@ -322,7 +326,7 @@ function createObservedAIProvider(
   };
 }
 
-function toSerializableErrorDetails(error: unknown): unknown {
+function toSerializableErrorDetails(error: unknown, depth = 0): unknown {
   if (!(error instanceof Error)) {
     return error;
   }
@@ -335,6 +339,16 @@ function toSerializableErrorDetails(error: unknown): unknown {
   const code = "code" in error ? (error as { code?: unknown }).code : undefined;
   if (typeof code === "string") {
     details.code = code;
+  }
+
+  const sourceLocation = extractSourceLocationFromStack(error.stack);
+  if (sourceLocation) {
+    details.sourceLocation = sourceLocation;
+  }
+
+  const cause = "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+  if (cause !== undefined && depth < 3) {
+    details.cause = toSerializableErrorDetails(cause, depth + 1);
   }
 
   return details;
@@ -869,6 +883,7 @@ class DefaultCycle implements Cycle {
         if (result.status === "fail") {
           const errorMessage = result.error?.message ?? `${task.name} failed`;
           lastErrorDetails = result.error?.details;
+          const sourceLocation = extractSourceLocationFromErrorDetails(result.error?.details);
           frame.failedTasks.push(task.name);
           frame.errors.push(errorMessage);
           finalStatus = "fail";
@@ -883,6 +898,7 @@ class DefaultCycle implements Cycle {
             meta: {
               ...meta,
               errorMessage,
+              ...(sourceLocation ? { sourceLocation } : {}),
               ...(result.error?.code ? { errorCode: result.error.code } : {}),
               ...(result.error?.details !== undefined
                 ? { errorDetails: result.error.details }
@@ -930,6 +946,7 @@ class DefaultCycle implements Cycle {
       frame.status = finalStatus;
 
       if (finalStatus === "fail") {
+        const sourceLocation = extractSourceLocationFromErrorDetails(lastErrorDetails);
         await runBroadcaster.emit({
           type: "workflow.failed",
           timestamp: this.now(),
@@ -941,6 +958,7 @@ class DefaultCycle implements Cycle {
             ...meta,
             errors: [...frame.errors],
             errorMessage: frame.errors[frame.errors.length - 1],
+            ...(sourceLocation ? { sourceLocation } : {}),
             ...(lastErrorDetails !== undefined ? { errorDetails: lastErrorDetails } : {})
           }
         });
@@ -978,6 +996,9 @@ class DefaultCycle implements Cycle {
       frame.updatedAt = this.now();
       lifecycleReport = await memory.runLifecycle(this.now());
 
+      const errorDetails =
+        normalizedError instanceof Error ? toSerializableErrorDetails(normalizedError) : undefined;
+
       await runBroadcaster.emit({
         type: "workflow.failed",
         timestamp: this.now(),
@@ -988,9 +1009,10 @@ class DefaultCycle implements Cycle {
         meta: {
           ...meta,
           errorMessage: message,
-          ...(normalizedError instanceof Error
-            ? { errorDetails: toSerializableErrorDetails(normalizedError) }
-            : {})
+          ...(errorDetails !== undefined
+            ? { sourceLocation: extractSourceLocationFromErrorDetails(errorDetails) }
+            : {}),
+          ...(errorDetails !== undefined ? { errorDetails } : {})
         }
       });
       await runBroadcaster.flush();

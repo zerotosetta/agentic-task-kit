@@ -1,3 +1,7 @@
+import {
+  extractSourceLocationFromErrorDetails,
+  formatErrorSourceLocation
+} from "./error-location.js";
 import type {
   ExecutionEvent,
   TaskLogEvent,
@@ -413,6 +417,18 @@ export function failureStackForEvent(event: ExecutionEvent): string[] {
     .filter((line) => line.length > 0);
 }
 
+export function failureSourceLocationForEvent(event: ExecutionEvent): string | undefined {
+  const sourceLocation = extractSourceLocationFromErrorDetails(event.meta?.errorDetails);
+  if (sourceLocation) {
+    return formatErrorSourceLocation(sourceLocation);
+  }
+
+  const metaLocation = extractSourceLocationFromErrorDetails({
+    sourceLocation: event.meta?.sourceLocation
+  });
+  return metaLocation ? formatErrorSourceLocation(metaLocation) : undefined;
+}
+
 function failureSuffix(summary: string, reason: string | undefined): string {
   if (!reason || reason === summary) {
     return "";
@@ -421,9 +437,14 @@ function failureSuffix(summary: string, reason: string | undefined): string {
   return ` reason=${reason}`;
 }
 
+function locationSuffix(location: string | undefined): string {
+  return location ? ` at=${location}` : "";
+}
+
 export function lineForEvent(event: ExecutionEvent): string {
   const prefix = formatTimestampPrefix(event.timestamp, taskLogLevelForEvent(event));
   const failureReason = failureReasonForEvent(event);
+  const failureLocation = failureSourceLocationForEvent(event);
 
   switch (event.type) {
     case "workflow.started":
@@ -431,14 +452,14 @@ export function lineForEvent(event: ExecutionEvent): string {
     case "workflow.completed":
       return `${prefix} workflow completed ${event.summary}`;
     case "workflow.failed":
-      return `${prefix} workflow failed ${event.summary}${failureSuffix(event.summary, failureReason)}`;
+      return `${prefix} workflow failed ${event.summary}${failureSuffix(event.summary, failureReason)}${locationSuffix(failureLocation)}`;
     case "task.queued":
     case "task.started":
     case "task.completed":
     case "task.retry_scheduled":
       return `${prefix} ${event.type} ${event.taskName} ${event.summary}`.trim();
     case "task.failed":
-      return `${prefix} task.failed ${event.taskName} ${event.summary}${failureSuffix(event.summary, failureReason)}`.trim();
+      return `${prefix} task.failed ${event.taskName} ${event.summary}${failureSuffix(event.summary, failureReason)}${locationSuffix(failureLocation)}`.trim();
     case "branch.started":
     case "branch.completed":
     case "join.waiting":
@@ -451,6 +472,10 @@ export function lineForEvent(event: ExecutionEvent): string {
 
 export function linesForEvent(event: ExecutionEvent): string[] {
   const lines = [lineForEvent(event)];
+  const failureLocation = failureSourceLocationForEvent(event);
+  if (failureLocation) {
+    lines.push(`${formatTimestampPrefix(event.timestamp, "error")} source ${failureLocation}`);
+  }
   const stackLines = failureStackForEvent(event);
   if (stackLines.length === 0) {
     return lines;
@@ -501,6 +526,7 @@ function buildTaskHistoryText(
   durationMs?: number
 ): string {
   const failureReason = failureReasonForEvent(event);
+  const failureLocation = failureSourceLocationForEvent(event);
   const phase =
     event.type === "task.retry_scheduled"
       ? "RETRY"
@@ -512,7 +538,7 @@ function buildTaskHistoryText(
             ? "DONE"
             : "FAIL";
 
-  const detail = failureReason ?? event.summary;
+  const detail = `${failureReason ?? event.summary}${failureLocation ? ` @ ${failureLocation}` : ""}`;
   const durationSuffix =
     durationMs !== undefined && event.type !== "task.queued"
       ? ` ${formatDuration(durationMs)}`
@@ -770,7 +796,11 @@ export function reduceExecutionEvent(
       state.activeTasks.delete(activeLabel);
       state.lastFailure =
         failureReasonForEvent(event) !== undefined
-          ? `${event.taskName}: ${failureReasonForEvent(event)}`
+          ? `${event.taskName}: ${failureReasonForEvent(event)}${
+              failureSourceLocationForEvent(event)
+                ? ` @ ${failureSourceLocationForEvent(event)}`
+                : ""
+            }`
           : `${event.taskName} failed`;
       state.lastFailureStack = failureStackForEvent(event);
       state.errorCount += 1;
@@ -1049,8 +1079,26 @@ export function pushFailureStackTimeline(
   event: ExecutionEvent,
   maxTimelineRows: number
 ): void {
+  const sourceLocation = failureSourceLocationForEvent(event);
+  if (sourceLocation) {
+    const taskName =
+      "taskName" in event && typeof event.taskName === "string"
+        ? event.taskName
+        : undefined;
+
+    state.timeline.push({
+      id: `source:${event.type}:${event.timestamp}`,
+      timestamp: event.timestamp,
+      level: "error",
+      source: "task",
+      ...(taskName !== undefined ? { taskName } : {}),
+      text: `${formatTimestampPrefix(event.timestamp, "error")} [SOURCE] ${sourceLocation}`
+    });
+  }
+
   const stackLines = failureStackForEvent(event);
   if (stackLines.length === 0) {
+    state.timeline = state.timeline.slice(-maxTimelineRows);
     return;
   }
 

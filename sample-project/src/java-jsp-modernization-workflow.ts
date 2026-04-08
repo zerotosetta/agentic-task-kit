@@ -143,7 +143,10 @@ function parseJsonObject<T>(text: string, label: string): T {
     return JSON.parse(extractJsonBlock(text)) as T;
   } catch (error) {
     throw new Error(
-      `${label} JSON parsing failed: ${error instanceof Error ? error.message : String(error)}`
+      `${label} JSON parsing failed: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        ...(error instanceof Error ? { cause: error } : {})
+      }
     );
   }
 }
@@ -187,7 +190,10 @@ async function parseStructuredJson<T>(
     } catch (repairError) {
       const repairMessage = repairError instanceof Error ? repairError.message : String(repairError);
       throw new Error(
-        `${label} JSON parsing failed after repair attempt: ${originalMessage}; repair error: ${repairMessage}`
+        `${label} JSON parsing failed after repair attempt: ${originalMessage}; repair error: ${repairMessage}`,
+        {
+          ...(repairError instanceof Error ? { cause: repairError } : {})
+        }
       );
     }
   }
