@@ -24,10 +24,6 @@ class PromptMonitoringTask extends Task {
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     const prompt =
       "Monitor this prompt and output length for issue 4 reproduction.";
-    ctx.log.info("AI prompt prepared", {
-      prompt,
-      promptLength: prompt.length
-    });
 
     const response = await ctx.ai.chat({
       messages: [
@@ -40,11 +36,6 @@ class PromptMonitoringTask extends Task {
           content: prompt
         }
       ]
-    });
-
-    ctx.log.success("AI response received", {
-      output: response.outputText,
-      outputLength: response.outputText.length
     });
 
     return {
@@ -104,16 +95,17 @@ export async function runIssue4Repro(): Promise<IssueReproResult> {
     | undefined;
   const reproduced =
     taskOutput !== undefined &&
-    !output.includes(String(taskOutput.promptLength)) &&
-    !output.includes(String(taskOutput.outputLength)) &&
-    !output.includes(taskOutput.prompt);
+    (!output.includes(String(taskOutput.promptLength)) ||
+      !output.includes(String(taskOutput.outputLength)) ||
+      !output.includes("AI chat request") ||
+      !output.includes("AI chat response"));
 
   return {
     issue: 4,
     title: "동작 모니터링을 위한 입력한 프롬프트와 출력된 내용에 대한 길이 출력 필요",
     reproduced,
     rootCause:
-      "ctx.ai.chat() 경로에 prompt/output monitoring 이 자동으로 연결돼 있지 않고, line renderer 도 task log meta 값을 출력하지 않아 prompt, promptLength, outputLength 가 사람에게 보이지 않는다.",
+      "기존 원인은 `ctx.ai.chat()` 경로에 prompt/output monitoring 이 자동으로 연결돼 있지 않고, line renderer 도 task log meta 값을 출력하지 않았기 때문이다. 현재는 AI wrapper 가 prompt/output 길이를 structured task log 로 자동 emit 하고 renderer 가 meta 를 line output 에 노출한다.",
     evidence: {
       rendererOutput: output.trim(),
       taskOutput

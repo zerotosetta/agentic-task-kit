@@ -8,10 +8,14 @@ import {
   InMemoryArtifactStore,
   InMemoryMemoryEngine,
   OpenAISummaryWorkflow,
+  Task,
   type AIChatRequest,
   type AIChatResponse,
   type AIChatStream,
-  type AIProvider
+  type AIProvider,
+  type TaskResult,
+  type WorkflowContext,
+  type WorkflowDefinition
 } from "../src/index.js";
 
 describe("AI provider integration", () => {
@@ -109,5 +113,85 @@ describe("AI provider integration", () => {
 
     expect(output).toContain("task info generateSummary Calling AI chat completion");
     expect(output).toContain("task success generateSummary Stored AI summary");
+  });
+
+  it("automatically logs prompt and output metadata for ctx.ai.chat()", async () => {
+    const aiProvider: AIProvider = {
+      provider: "mock-openai",
+      defaultChatModel: "gpt-test",
+      async chat(request): Promise<AIChatResponse> {
+        return {
+          provider: "mock-openai",
+          model: request.model ?? "gpt-test",
+          outputText: "Acknowledged for monitoring.",
+          message: {
+            role: "assistant",
+            content: "Acknowledged for monitoring."
+          },
+          finishReason: "stop"
+        };
+      },
+      async chatStream(): Promise<AIChatStream> {
+        throw new Error("stream not used in this test");
+      }
+    };
+
+    class MonitoringTask extends Task {
+      name = "monitor";
+      memoryPhase = "EXECUTION" as const;
+      memoryTaskType = "workflow" as const;
+
+      async run(ctx: WorkflowContext): Promise<TaskResult> {
+        await ctx.ai.chat({
+          messages: [
+            { role: "developer", content: "Return a short acknowledgement." },
+            { role: "user", content: "Monitor this prompt and output length." }
+          ]
+        });
+
+        return {
+          status: "success"
+        };
+      }
+    }
+
+    const workflow: WorkflowDefinition = {
+      name: "monitoring",
+      start: "monitor",
+      end: "end",
+      tasks: {
+        monitor: new MonitoringTask()
+      },
+      transitions: {
+        monitor: {
+          success: "end",
+          fail: "end"
+        }
+      }
+    };
+
+    const stream = new PassThrough();
+    let output = "";
+    stream.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+
+    const renderer = createCLIRenderer({
+      enabled: false,
+      stream: stream as unknown as NodeJS.WriteStream
+    });
+    const cycle = createCycle({
+      aiProvider,
+      observers: [renderer]
+    });
+
+    cycle.register("monitoring", workflow);
+    const result = await cycle.run("monitoring", createWorkflowInput({ requestId: "issue-4" }));
+
+    expect(result.frame.status).toBe("success");
+    expect(output).toContain("task info monitor AI chat request");
+    expect(output).toContain("promptLength=");
+    expect(output).toContain("task success monitor AI chat response");
+    expect(output).toContain("outputLength=");
   });
 });

@@ -252,6 +252,13 @@ const cycle = createCycle({
 
 HTTP 요청이 실패하면 `AIProviderRequestError` 가 throw 된다. 이 error 에는 `status`, `responseBody`, `requestId`, `originalError` 가 들어 있으니 catch 후 그대로 로깅하면 원인 추적이 쉽다.
 
+`ctx.ai.chat()` / `ctx.ai.chatStream()` 호출 시 runtime 이 자동으로 아래 task log 를 남긴다.
+
+- request 시점: `promptLength`, `fullPromptLength`, `messageCount`, `model`, prompt preview
+- response 시점: `outputLength`, output preview, finish reason, usage
+
+별도 `ctx.log.info()` 를 쓰지 않아도 line / compact / ink renderer 에서 이 값들을 바로 볼 수 있다.
+
 설정 파일 경로를 쓰고 싶으면:
 
 ```ts

@@ -37,7 +37,11 @@ describe("CLI renderer", () => {
       runId: "run_1",
       taskName: "analyze",
       level: "info",
-      message: "Starting analysis"
+      message: "Starting analysis",
+      meta: {
+        promptLength: 42,
+        prompt: "Monitor this prompt for renderer output."
+      }
     };
 
     renderer.onEvent(started);
@@ -46,6 +50,7 @@ describe("CLI renderer", () => {
 
     expect(output).toContain("workflow started");
     expect(output).toContain("task info analyze Starting analysis");
+    expect(output).toContain("promptLength=42");
     expect(output).not.toContain("\u001B[");
   });
 
