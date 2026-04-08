@@ -22,9 +22,12 @@ npm install agentic-task-kit
 - lifecycle `Create -> Update -> Merge -> Compress -> Expire`
 - `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
 - OpenAI-compatible Chat Completions adapter
+- OpenAI-compatible content-part chat input
 - separate OpenAI-compatible config file loading
 - compact CLI renderer
 - Ink 2-column TUI renderer
+- failure stack trace rendering
+- log level color theme + config override
 - live rendering off line mode
 - sample `ReportWorkflow`
 
@@ -110,6 +113,21 @@ OPENAI_API_KEY=your_key_here OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_REN
 
 interactive TTY 가 아니면 `ink` 모드는 `jsonl` 로 자동 fallback 된다.
 
+renderer 색상은 runtime option 이나 JSON config file 로 override 할 수 있다.
+
+```ts
+import { createCLIRenderer } from "agentic-task-kit";
+
+const renderer = createCLIRenderer({
+  mode: "line",
+  useColor: true,
+  colorConfigPath: "./renderer-colors.json",
+  colorTheme: {
+    error: "magenta"
+  }
+});
+```
+
 ## Build
 배포 산출물은 `esbuild` 로 만든 단일 ESM 번들 `dist/index.js` 와 타입 선언 `dist/index.d.ts` 다. npm 런타임 의존성은 번들에 포함되고 Node.js built-in module 만 external 로 남는다.
 
@@ -181,6 +199,29 @@ const cycle = createCycle({
 ```
 
 `CYCLE_OPENAI_COMPATIBLE_CONFIG_PATH`, `CYCLE_OPENAI_CONFIG_PATH`, `OPENAI_CONFIG_PATH` 로도 경로를 지정할 수 있습니다.
+
+content-part 형식도 사용할 수 있습니다.
+
+```ts
+await ctx.ai.chat({
+  messages: [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Analyze this payload."
+        },
+        {
+          type: "image_url",
+          imageUrl: "https://example.test/input.png",
+          detail: "low"
+        }
+      ]
+    }
+  ]
+});
+```
 
 ## Workflow Input Contract
 `Cycle.run()` 과 `WorkflowContext.input` 은 `Map<string, any>` 를 사용한다. plain object 입력은 `createWorkflowInput()` 으로 감싼다.

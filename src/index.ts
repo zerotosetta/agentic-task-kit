@@ -9,6 +9,7 @@ export {
 export { ExecutionBroadcaster } from "./events.js";
 export { createExecutionHistoryTracker } from "./history.js";
 export { createTaskLogger } from "./logging.js";
+export { loadCLIRendererColorThemeFromConfigFile } from "./renderer-colors.js";
 export {
   createObservedMemoryEngine,
   DeterministicHashEmbeddingProvider,
@@ -49,6 +50,8 @@ export type {
   AIChatResponse,
   AIChatStream,
   AIChatStreamChunk,
+  AIChatContentPart,
+  AIChatMessageContent,
   AIHTTPDebugLoggingOptions,
   AIChatUsage,
   AIHTTPRequestOptions,
@@ -109,10 +112,13 @@ export type {
   OpenAIChatProviderFileConfig,
   OpenAIChatProviderConfigFileOptions,
   ParallelTransition,
+  RendererColorName,
+  ResolvedTaskLogColorTheme,
   RunArtifact,
   RunOptions,
   SubWorkflowRunOptions,
   TaskLike,
+  TaskLogColorTheme,
   TaskLogEvent,
   TaskLogLevel,
   TaskLogger,

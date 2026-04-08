@@ -282,9 +282,25 @@ export type RunArtifact = Artifact & {
 
 export type AIChatMessageRole = "developer" | "system" | "user" | "assistant";
 
+export type AITextContentPart = {
+  type: "text" | "input_text";
+  text: string;
+};
+
+export type AIImageURLContentPart = {
+  type: "image_url";
+  imageUrl?: string;
+  image_url?: string | { url: string; detail?: "auto" | "low" | "high" };
+  detail?: "auto" | "low" | "high";
+};
+
+export type AIChatContentPart = AITextContentPart | AIImageURLContentPart;
+
+export type AIChatMessageContent = string | AIChatContentPart[];
+
 export type AISessionMessage = {
   role: AIChatMessageRole;
-  content: string;
+  content: AIChatMessageContent;
   name?: string;
 };
 
@@ -404,6 +420,21 @@ export type Transition =
     };
 
 export type TaskLogLevel = "debug" | "info" | "warn" | "error" | "success";
+
+export type RendererColorName =
+  | "black"
+  | "red"
+  | "green"
+  | "yellow"
+  | "blue"
+  | "magenta"
+  | "cyan"
+  | "white"
+  | "gray";
+
+export type TaskLogColorTheme = Partial<Record<TaskLogLevel, RendererColorName>>;
+
+export type ResolvedTaskLogColorTheme = Record<TaskLogLevel, RendererColorName>;
 
 export type TaskLogEvent = {
   timestamp: number;
@@ -538,6 +569,8 @@ export type CLIRendererOptions = {
   errorStream?: NodeJS.WriteStream;
   debugLogStream?: NodeJS.ReadableStream;
   useColor?: boolean;
+  colorTheme?: TaskLogColorTheme;
+  colorConfigPath?: string;
   useUnicode?: boolean;
   refreshMs?: number;
   maxRecentEvents?: number;

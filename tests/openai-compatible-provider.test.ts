@@ -255,6 +255,75 @@ describe("OpenAI-compatible provider", () => {
     expect(mock.requests[0]?.body?.prompt_cache_key).toBe("compat-1");
   });
 
+  it("maps content-part chat input into OpenAI-compatible message payloads", async () => {
+    const mock = await createMockServer();
+    servers.push(mock.server);
+
+    const provider = createOpenAICompatibleChatProvider({
+      providerName: "mock-compatible",
+      apiKey: "test-key",
+      baseURL: mock.baseURL,
+      defaultModel: "compatible-model"
+    });
+
+    await provider.chat({
+      messages: [
+        {
+          role: "developer",
+          content: [
+            {
+              type: "text",
+              text: "Reply with a concise acknowledgement."
+            }
+          ]
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Analyze this request."
+            },
+            {
+              type: "image_url",
+              imageUrl: "https://example.test/input.png",
+              detail: "low"
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(mock.requests).toHaveLength(1);
+    expect(mock.requests[0]?.body?.messages).toEqual([
+      {
+        role: "developer",
+        content: [
+          {
+            type: "text",
+            text: "Reply with a concise acknowledgement."
+          }
+        ]
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Analyze this request."
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: "https://example.test/input.png",
+              detail: "low"
+            }
+          }
+        ]
+      }
+    ]);
+  });
+
   it("supports streaming responses and request-scoped headers", async () => {
     const mock = await createMockServer();
     servers.push(mock.server);

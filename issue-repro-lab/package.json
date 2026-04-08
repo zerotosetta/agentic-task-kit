@@ -10,6 +10,7 @@
     "repro:issue-15": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-15-memory-write-drop.ts",
     "repro:issue-16": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-16-ink-stack-infinite.tsx",
     "repro:issue-17": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-17-stack-trace-hidden.ts",
+    "repro:issue-18": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-18-log-colors.ts",
     "repro:all": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/run-all.ts"
   }
 }

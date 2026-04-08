@@ -1,10 +1,16 @@
 import { InkCLIRenderer } from "./ink-renderer.js";
 import {
+  colorizeRendererText,
+  resolveTaskLogColorTheme,
+  shouldUseRendererColors,
+  taskLogLevelForExecutionEvent
+} from "./renderer-colors.js";
+import {
   createInitialRendererState,
   jsonForEvent,
   jsonForTaskLog,
   levelWeight,
-  lineForEvent,
+  linesForEvent,
   lineForTaskLog,
   reduceExecutionEvent,
   type RendererResolvedMode
@@ -13,6 +19,7 @@ import type {
   CLIRenderer,
   CLIRendererOptions,
   ExecutionEvent,
+  ResolvedTaskLogColorTheme,
   TaskLogEvent
 } from "./types.js";
 
@@ -25,6 +32,8 @@ function sanitizeMode(mode?: RequestedMode): RequestedMode {
 
 class DefaultCLIRenderer implements CLIRenderer {
   private readonly stream: NodeJS.WriteStream;
+  private readonly useColor: boolean;
+  private readonly colorTheme: ResolvedTaskLogColorTheme;
   private readonly options: Required<
     Pick<CLIRendererOptions, "enabled" | "refreshMs" | "maxRecentEvents" | "maxRecentLogs"> &
       Pick<CLIRendererOptions, "mode" | "logLevel">
@@ -38,6 +47,8 @@ class DefaultCLIRenderer implements CLIRenderer {
 
   constructor(options: CLIRendererOptions = {}) {
     this.stream = options.stream ?? process.stdout;
+    this.useColor = shouldUseRendererColors(options, this.stream);
+    this.colorTheme = resolveTaskLogColorTheme(options);
     this.options = {
       enabled: options.enabled ?? true,
       mode: sanitizeMode(options.mode),
@@ -102,7 +113,11 @@ class DefaultCLIRenderer implements CLIRenderer {
         break;
       case "plain":
       case "line":
-        this.stream.write(`${lineForEvent(event)}\n`);
+        for (const line of linesForEvent(event)) {
+          this.stream.write(
+            `${colorizeRendererText(line, taskLogLevelForExecutionEvent(event), this.colorTheme, this.useColor)}\n`
+          );
+        }
         break;
     }
   }
@@ -136,7 +151,9 @@ class DefaultCLIRenderer implements CLIRenderer {
         break;
       case "plain":
       case "line":
-        this.stream.write(`${lineForTaskLog(event)}\n`);
+        this.stream.write(
+          `${colorizeRendererText(lineForTaskLog(event), event.level, this.colorTheme, this.useColor)}\n`
+        );
         break;
     }
   }
@@ -200,12 +217,36 @@ class DefaultCLIRenderer implements CLIRenderer {
       `Active: ${[...this.state.activeTasks].join(", ") || "-"}`,
       `Completed: ${this.state.completedTasks.join(", ") || "-"}`,
       `Counts: artifacts=${this.state.artifactCount} memoryWrites=${this.state.memoryWrites} retries=${this.state.retryCount} errors=${this.state.errorCount}`,
-      `Failure: ${this.state.lastFailure ?? "-"}`,
+      colorizeRendererText(
+        `Failure: ${this.state.lastFailure ?? "-"}`,
+        this.state.lastFailure ? "error" : "info",
+        this.colorTheme,
+        this.useColor
+      ),
+      ...(
+        this.state.lastFailureStack.length > 0
+          ? this.state.lastFailureStack.map((line, index) =>
+              colorizeRendererText(
+                `${index === 0 ? "Stack:" : "     "} ${line}`,
+                "error",
+                this.colorTheme,
+                this.useColor
+              )
+            )
+          : []
+      ),
       `Recent log: ${
         this.state.recentLogs.length > 0
           ? this.state.recentLogs
               .slice(-3)
-              .map((log) => `[${log.level}] ${log.taskName ?? "-"} ${log.message}`)
+              .map((log) =>
+                colorizeRendererText(
+                  `[${log.level}] ${log.taskName ?? "-"} ${log.message}`,
+                  log.level,
+                  this.colorTheme,
+                  this.useColor
+                )
+              )
               .join(" | ")
           : "-"
       }`

@@ -53,6 +53,31 @@ const completion = await ctx.ai.chat({
 });
 ```
 
+content-part 입력:
+
+```ts
+const completion = await ctx.ai.chat({
+  messages: [
+    {
+      role: "developer",
+      content: [{ type: "text", text: "Summarize the request." }]
+    },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Analyze this payload." },
+        { type: "image_url", imageUrl: "https://example.test/input.png", detail: "low" }
+      ]
+    }
+  ]
+});
+```
+
+지원 규칙:
+- `user`: `string` 또는 text/image content-part 배열
+- `developer`, `system`, `assistant`: `string` 또는 text content-part 배열
+- non-text part 를 `developer` / `system` / `assistant` 에 넣으면 provider mapping 단계에서 에러가 발생한다.
+
 요청 단위 header 추가:
 
 ```ts

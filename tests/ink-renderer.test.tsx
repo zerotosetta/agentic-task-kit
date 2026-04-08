@@ -1,6 +1,7 @@
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_TASK_LOG_COLOR_THEME } from "../src/renderer-colors.js";
 import {
   InkRendererScreen,
   reduceInkUIState,
@@ -177,6 +178,8 @@ describe("Ink renderer screen", () => {
         columns={110}
         rows={20}
         finalStatus={undefined}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
       />
     );
 
@@ -207,6 +210,8 @@ describe("Ink renderer screen", () => {
         columns={110}
         rows={18}
         finalStatus={undefined}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
       />
     );
 
@@ -237,6 +242,104 @@ describe("Ink renderer screen", () => {
       await flushInk();
       expect(instance.lastFrame()).toContain("follow=on");
       expect(instance.lastFrame()).toContain("[REQ] gemini POST");
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it("guards cyclic child workflow graphs instead of recursing forever", async () => {
+    const state = createInitialRendererState();
+    const now = Date.UTC(2026, 2, 29, 10, 0, 0);
+    state.workflowId = "cycle-root";
+    state.runId = "run-cycle";
+    state.status = "running";
+    state.updatedAt = now;
+    state.workflowOrder.push("cycle-root");
+    state.workflows.set("cycle-root", {
+      workflowId: "cycle-root",
+      runId: "run-cycle",
+      name: "cycle-root",
+      summary: "cycle-root start=loop",
+      status: "running",
+      startedAt: now,
+      updatedAt: now,
+      taskOrder: [],
+      tasks: new Map(),
+      branchOrder: ["branch.loop"],
+      branches: new Map([
+        [
+          "branch.loop",
+          {
+            branchId: "branch.loop",
+            summary: "loop child",
+            status: "success",
+            startedAt: now,
+            completedAt: now,
+            childWorkflowId: "cycle-root",
+            childRunId: "run-cycle"
+          }
+        ]
+      ])
+    });
+
+    const instance = render(
+      <InkRendererScreen
+        state={state}
+        columns={100}
+        rows={18}
+        finalStatus={undefined}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
+      />
+    );
+
+    try {
+      await flushInk();
+      const frame = instance.lastFrame();
+      expect(frame).toContain("(cycle detected: cycle-root)");
+      expect(frame).not.toContain("Maximum call stack size exceeded");
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  it("shows stack trace lines in the Ink log panel", async () => {
+    const state = createInkState();
+    reduceExecutionEvent(state, {
+      type: "task.failed",
+      timestamp: Date.UTC(2026, 2, 29, 9, 2, 2),
+      workflowId: "java-modernization",
+      runId: "run_ink",
+      taskName: "task-8",
+      summary: "boom",
+      status: "fail",
+      meta: {
+        errorMessage: "boom",
+        errorDetails: {
+          stack: [
+            "Error: boom",
+            "    at TaskEight.run (task-eight.ts:10:3)"
+          ].join("\n")
+        }
+      }
+    }, 10, 64, 128);
+
+    const instance = render(
+      <InkRendererScreen
+        state={state}
+        columns={110}
+        rows={20}
+        finalStatus={"fail"}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
+      />
+    );
+
+    try {
+      await flushInk();
+      const frame = instance.lastFrame();
+      expect(frame).toContain("[STACK] Error: boom");
+      expect(frame).toContain("TaskEight.run");
     } finally {
       instance.unmount();
     }

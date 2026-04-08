@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink-testing-library";
 
 import { InkRendererScreen } from "../../src/ink-renderer.tsx";
+import { DEFAULT_TASK_LOG_COLOR_THEME } from "../../src/renderer-colors.ts";
 import {
   createInitialRendererState,
   type WorkflowRenderState
@@ -66,6 +67,8 @@ export function runIssue16Repro(): IssueReproResult {
         columns={120}
         rows={40}
         finalStatus={undefined}
+        useColor={false}
+        colorTheme={DEFAULT_TASK_LOG_COLOR_THEME}
       />
     );
     frame = instance.lastFrame() ?? "";
