@@ -422,7 +422,7 @@ describe("CLI renderer", () => {
     expect(exitCode).toBe(0);
   });
 
-  it("handles Ctrl+C by cancelling active workflows before exiting", async () => {
+  it("handles Ctrl+C by cancelling active workflows, then restoring the terminal and exiting when the run stops", async () => {
     const ttyLike = stream as unknown as NodeJS.WriteStream & {
       isTTY?: boolean;
       columns?: number;
@@ -478,13 +478,14 @@ describe("CLI renderer", () => {
       const signalHandler = renderer["processSignalHandler"] as (() => void) | undefined;
       signalHandler?.();
       await Promise.resolve();
+      renderer.stop("fail");
     } finally {
       process.exit = originalExit;
     }
 
     expect(cancelCalls).toBe(1);
-    expect(leaveCalls).toBe(0);
-    expect(summaryCalls).toBe(0);
-    expect(exitCode).toBeUndefined();
+    expect(leaveCalls).toBe(1);
+    expect(summaryCalls).toBe(1);
+    expect(exitCode).toBe(130);
   });
 });
