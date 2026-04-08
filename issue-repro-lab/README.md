@@ -1,6 +1,6 @@
 # issue-repro-lab
 
-`agentic-task-kit` open issue 를 수정 전에 재연하고 원인을 고정하기 위한 서브 프로젝트다.
+`agentic-task-kit` fixed issue 를 재연하고 회귀를 확인하기 위한 서브 프로젝트다.
 
 ## 대상 이슈
 - `#4` 입력 프롬프트와 출력 길이 모니터링 누락
@@ -14,7 +14,7 @@
 루트 저장소에서 의존성을 설치한 뒤 아래 명령을 사용한다.
 
 ```bash
-cd /Users/fortrit/workspace/agentic-task-kit/.codex-worktrees/agentic-task-kit-main-6/issue-repro-lab
+cd /Users/fortrit/workspace/agentic-task-kit/agentic-task-kit/issue-repro-lab
 npm run repro:all
 ```
 
