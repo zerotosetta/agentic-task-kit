@@ -8,6 +8,7 @@
 - `#15` workflow context memory write 가 정상 반환되지만 일부 데이터가 적재되지 않는 것처럼 보이는 현상
 - `#16` Ink workflow chart recursion 으로 인한 stack overflow
 - `#17` workflow task error stack trace 미출력
+- `#18` 로그 유형별 텍스트 색상 지정 및 config override 미지원
 
 ## 실행
 루트 저장소에서 의존성을 설치한 뒤 아래 명령을 사용한다.
@@ -25,9 +26,11 @@ npm run repro:issue-14
 npm run repro:issue-15
 npm run repro:issue-16
 npm run repro:issue-17
+npm run repro:issue-18
 ```
 
 ## 현재 메모
 - `repro:*` 명령은 항상 먼저 상위 라이브러리 `dist/` 를 다시 빌드한다.
 - issue `#16` 은 현재 public package surface 만으로는 renderer 내부 state cycle 을 직접 만들 수 없어서, 재연 스크립트가 내부 `src/ink-renderer.tsx` 와 `src/renderer-model.ts` 를 직접 사용한다.
 - 나머지 이슈는 built package surface(`../../dist/index.js`) 기준으로 재연한다.
+- 현재 `repro:all` 기준 `#4`, `#14`, `#15`, `#16`, `#17`, `#18` 모두 `reproduced: false` 여야 한다.

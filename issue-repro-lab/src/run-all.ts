@@ -3,13 +3,15 @@ import { runIssue14Repro } from "./issue-14-new-chat-input-shape.js";
 import { runIssue15Repro } from "./issue-15-memory-write-drop.js";
 import { runIssue16Repro } from "./issue-16-ink-stack-infinite.js";
 import { runIssue17Repro } from "./issue-17-stack-trace-hidden.js";
+import { runIssue18Repro } from "./issue-18-log-colors.js";
 
 const results = [
   await runIssue4Repro(),
   runIssue14Repro(),
   await runIssue15Repro(),
   runIssue16Repro(),
-  await runIssue17Repro()
+  await runIssue17Repro(),
+  runIssue18Repro()
 ];
 
 console.log(JSON.stringify(results, null, 2));

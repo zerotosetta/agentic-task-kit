@@ -740,6 +740,7 @@ class DefaultCycle implements Cycle {
 
     const endState = workflow.end ?? "end";
     let finalStatus: ExecutionStatus = "success";
+    let lastErrorDetails: unknown;
 
     try {
       while (frame.currentState !== endState) {
@@ -856,6 +857,7 @@ class DefaultCycle implements Cycle {
 
         if (result.status === "fail") {
           const errorMessage = result.error?.message ?? `${task.name} failed`;
+          lastErrorDetails = result.error?.details;
           frame.failedTasks.push(task.name);
           frame.errors.push(errorMessage);
           finalStatus = "fail";
@@ -927,7 +929,8 @@ class DefaultCycle implements Cycle {
           meta: {
             ...meta,
             errors: [...frame.errors],
-            errorMessage: frame.errors[frame.errors.length - 1]
+            errorMessage: frame.errors[frame.errors.length - 1],
+            ...(lastErrorDetails !== undefined ? { errorDetails: lastErrorDetails } : {})
           }
         });
       } else {
@@ -973,7 +976,10 @@ class DefaultCycle implements Cycle {
         status: "fail",
         meta: {
           ...meta,
-          errorMessage: message
+          errorMessage: message,
+          ...(normalizedError instanceof Error
+            ? { errorDetails: toSerializableErrorDetails(normalizedError) }
+            : {})
         }
       });
       await runBroadcaster.flush();

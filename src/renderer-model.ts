@@ -69,6 +69,7 @@ export type RendererState = {
   status: string | undefined;
   currentTask: string | undefined;
   lastFailure: string | undefined;
+  lastFailureStack: string[];
   activeTasks: Set<string>;
   completedTasks: string[];
   recentEvents: string[];
@@ -92,6 +93,7 @@ export function createInitialRendererState(): RendererState {
     status: undefined,
     currentTask: undefined,
     lastFailure: undefined,
+    lastFailureStack: [],
     activeTasks: new Set(),
     completedTasks: [],
     recentEvents: [],
@@ -366,6 +368,25 @@ export function failureReasonForEvent(event: ExecutionEvent): string | undefined
   return undefined;
 }
 
+export function failureStackForEvent(event: ExecutionEvent): string[] {
+  const stack =
+    event.meta?.errorDetails &&
+    typeof event.meta.errorDetails === "object" &&
+    !Array.isArray(event.meta.errorDetails) &&
+    "stack" in event.meta.errorDetails
+      ? (event.meta.errorDetails as { stack?: unknown }).stack
+      : undefined;
+
+  if (typeof stack !== "string") {
+    return [];
+  }
+
+  return stack
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+}
+
 function failureSuffix(summary: string, reason: string | undefined): string {
   if (!reason || reason === summary) {
     return "";
@@ -400,6 +421,21 @@ export function lineForEvent(event: ExecutionEvent): string {
     default:
       return `${prefix} ${event.type} ${event.summary}`.trim();
   }
+}
+
+export function linesForEvent(event: ExecutionEvent): string[] {
+  const lines = [lineForEvent(event)];
+  const stackLines = failureStackForEvent(event);
+  if (stackLines.length === 0) {
+    return lines;
+  }
+
+  const prefix = `[${formatClock(event.timestamp)}] stack `;
+  for (const stackLine of stackLines) {
+    lines.push(`${prefix}${stackLine}`);
+  }
+
+  return lines;
 }
 
 export function lineForTaskLog(event: TaskLogEvent): string {
@@ -578,6 +614,7 @@ export function reduceExecutionEvent(
       state.status = "running";
       state.startedAt ??= event.timestamp;
       state.lastFailure = undefined;
+      state.lastFailureStack = [];
       break;
     }
     case "workflow.completed": {
@@ -598,6 +635,7 @@ export function reduceExecutionEvent(
       if (!workflow.parentWorkflowId) {
         state.status = event.status;
         state.lastFailure = undefined;
+        state.lastFailureStack = [];
       }
       state.activeTasks.clear();
       break;
@@ -620,8 +658,10 @@ export function reduceExecutionEvent(
       if (!workflow.parentWorkflowId) {
         state.status = event.status;
         state.lastFailure = failureReasonForEvent(event) ?? state.lastFailure;
+        state.lastFailureStack = failureStackForEvent(event);
         state.errorCount += 1;
       }
+      pushFailureStackTimeline(state, event, maxTimelineRows);
       state.activeTasks.clear();
       break;
     }
@@ -706,9 +746,11 @@ export function reduceExecutionEvent(
         failureReasonForEvent(event) !== undefined
           ? `${event.taskName}: ${failureReasonForEvent(event)}`
           : `${event.taskName} failed`;
+      state.lastFailureStack = failureStackForEvent(event);
       state.errorCount += 1;
       const task = updateTaskStateFromEvent(state, event);
       pushTaskHistory(state, event, maxHistoryRows, getTaskDurationMs(task, event.timestamp));
+      pushFailureStackTimeline(state, event, maxTimelineRows);
       break;
     }
     case "task.retry_scheduled": {
@@ -971,6 +1013,34 @@ export function pushDebugLogLine(
     level: "debug",
     source: "debug",
     text
+  });
+  state.timeline = state.timeline.slice(-maxTimelineRows);
+}
+
+export function pushFailureStackTimeline(
+  state: RendererState,
+  event: ExecutionEvent,
+  maxTimelineRows: number
+): void {
+  const stackLines = failureStackForEvent(event);
+  if (stackLines.length === 0) {
+    return;
+  }
+
+  const taskName =
+    "taskName" in event && typeof event.taskName === "string"
+      ? event.taskName
+      : undefined;
+
+  stackLines.forEach((stackLine, index) => {
+    state.timeline.push({
+      id: `stack:${event.type}:${event.timestamp}:${index}`,
+      timestamp: event.timestamp,
+      level: "error",
+      source: "task",
+      ...(taskName !== undefined ? { taskName } : {}),
+      text: `${formatClock(event.timestamp)} [STACK] ${stackLine}`
+    });
   });
   state.timeline = state.timeline.slice(-maxTimelineRows);
 }

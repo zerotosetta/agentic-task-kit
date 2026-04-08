@@ -1,8 +1,13 @@
 import { createInterface, type Interface as ReadLineInterface } from "node:readline";
 
 import { render, Text, useInput } from "ink";
-import { useEffect, useState, type ReactElement } from "react";
+import React, { useEffect, useState, type ReactElement } from "react";
 
+import {
+  inkColorForLevel,
+  resolveTaskLogColorTheme,
+  shouldUseRendererColors
+} from "./renderer-colors.js";
 import { getGlobalWorkflowRuntimeController } from "./runtime-control.js";
 import {
   createInitialRendererState,
@@ -14,6 +19,7 @@ import {
   reduceExecutionEvent,
   truncateText,
   type RendererState,
+  type TimelineRow,
   type WorkflowRenderState,
   type WorkflowTaskState
 } from "./renderer-model.js";
@@ -21,6 +27,7 @@ import type {
   CLIRenderer,
   CLIRendererOptions,
   ExecutionEvent,
+  ResolvedTaskLogColorTheme,
   TaskLogEvent
 } from "./types.js";
 
@@ -52,6 +59,8 @@ type InkRendererScreenProps = {
   columns: number;
   rows: number;
   finalStatus: "success" | "fail" | undefined;
+  useColor: boolean;
+  colorTheme: ResolvedTaskLogColorTheme;
 };
 
 const DEFAULT_COLUMNS = 100;
@@ -228,8 +237,20 @@ function renderWorkflowBranchLines(
   workflowId: string,
   width: number,
   depth: number,
-  branchLabel?: string
+  branchLabel?: string,
+  visited = new Set<string>()
 ): string[] {
+  if (visited.has(workflowId)) {
+    const indent = depth * 4;
+    const prefix = " ".repeat(indent);
+    const lines: string[] = [];
+    if (branchLabel) {
+      lines.push(padLine(`${prefix}${branchLabel}`, width));
+    }
+    lines.push(padLine(`${prefix}(cycle detected: ${workflowId})`, width));
+    return lines;
+  }
+
   const workflow = state.workflows.get(workflowId);
   if (!workflow) {
     return [];
@@ -239,6 +260,8 @@ function renderWorkflowBranchLines(
   const indent = depth * 4;
   const lines: string[] = [];
   const headerPrefix = " ".repeat(indent);
+  const nextVisited = new Set(visited);
+  nextVisited.add(workflowId);
   const workflowLabel =
     `${workflow.name} [${workflowStatusLabel(workflow.status)} ${formatDuration(workflowDurationMs(workflow, now))}]`;
 
@@ -267,7 +290,8 @@ function renderWorkflowBranchLines(
           branch.childWorkflowId,
           width,
           depth + 1,
-          branchSummary
+          branchSummary,
+          nextVisited
         )
       );
     } else {
@@ -348,7 +372,9 @@ export function InkRendererScreen({
   state,
   columns,
   rows,
-  finalStatus
+  finalStatus,
+  useColor,
+  colorTheme
 }: InkRendererScreenProps): ReactElement {
   const [uiState, setUiState] = useState<InkUIState>({
     focusedPane: "right",
@@ -365,10 +391,10 @@ export function InkRendererScreen({
   const flowchartViewport = clamp(flowchartLines.length, 6, Math.max(6, contentRows - 6));
   const bottomViewport = Math.max(4, contentRows - flowchartViewport - 2);
   const leftLines = state.taskHistory.map((row) => padLine(row.text, leftWidth));
-  const rightLines = state.timeline.map((row) => padLine(row.text, rightWidth));
+  const rightRows = state.timeline;
   const metrics = {
     leftMaxScroll: maxScroll(leftLines.length, bottomViewport),
-    rightMaxScroll: maxScroll(rightLines.length, bottomViewport),
+    rightMaxScroll: maxScroll(rightRows.length, bottomViewport),
     pageSize: Math.max(1, bottomViewport - 1)
   };
 
@@ -435,17 +461,29 @@ export function InkRendererScreen({
     `${withTitle(`실행 로그 (${state.timeline.length})`, rightWidth, uiState.focusedPane === "right")}`;
 
   const leftPanelLines = visibleWindow(leftLines, uiState.leftScroll, bottomViewport);
-  const rightPanelLines = visibleWindow(rightLines, uiState.rightScroll, bottomViewport);
+  const rightPanelRows = rightRows.slice(uiState.rightScroll, uiState.rightScroll + bottomViewport);
   while (leftPanelLines.length < bottomViewport) {
     leftPanelLines.push(" ".repeat(leftWidth));
   }
-  while (rightPanelLines.length < bottomViewport) {
-    rightPanelLines.push(" ".repeat(rightWidth));
+  while (rightPanelRows.length < bottomViewport) {
+    rightPanelRows.push({
+      id: `empty:${rightPanelRows.length}`,
+      timestamp: 0,
+      level: "info",
+      source: "task",
+      text: ""
+    });
   }
 
-  const mergedBottomLines: string[] = [];
+  const mergedBottomLines: Array<{ id: string; left: string; right: string; level: TimelineRow["level"] }> = [];
   for (let index = 0; index < bottomViewport; index += 1) {
-    mergedBottomLines.push(`${leftPanelLines[index] ?? " ".repeat(leftWidth)}│${rightPanelLines[index] ?? " ".repeat(rightWidth)}`);
+    const row = rightPanelRows[index];
+    mergedBottomLines.push({
+      id: row?.id ?? `row:${index}`,
+      left: leftPanelLines[index] ?? " ".repeat(leftWidth),
+      right: padLine(row?.text ?? "", rightWidth),
+      level: row?.level ?? "info"
+    });
   }
 
   return (
@@ -455,8 +493,16 @@ export function InkRendererScreen({
         <Text key={`top-${index}`}>{line}</Text>
       ))}
       <Text>{bottomTitleLine}</Text>
-      {mergedBottomLines.map((line, index) => (
-        <Text key={`bottom-${index}`}>{line}</Text>
+      {mergedBottomLines.map((line) => (
+        <Text key={line.id}>
+          <Text>{line.left}</Text>
+          <Text>│</Text>
+          {useColor ? (
+            <Text color={inkColorForLevel(line.level, colorTheme)}>{line.right}</Text>
+          ) : (
+            <Text>{line.right}</Text>
+          )}
+        </Text>
       ))}
       <Text>{buildFooterLine(columns, uiState.focusedPane, uiState.rightAutoFollow)}</Text>
       {finalStatus ? <Text>{padLine(`Final status: ${finalStatus}`, columns)}</Text> : null}
@@ -472,6 +518,8 @@ type InkRendererResolvedOptions = Required<
   errorStream: NodeJS.WriteStream;
   workflowController: NonNullable<CLIRendererOptions["workflowController"]>;
   debugLogStream?: NodeJS.ReadableStream;
+  useColor: boolean;
+  colorTheme: ResolvedTaskLogColorTheme;
 };
 
 export class InkCLIRenderer implements CLIRenderer {
@@ -512,6 +560,8 @@ export class InkCLIRenderer implements CLIRenderer {
       stream: options.stream ?? process.stdout,
       errorStream: options.errorStream ?? process.stderr,
       workflowController: options.workflowController ?? getGlobalWorkflowRuntimeController(),
+      useColor: shouldUseRendererColors(options, options.stream ?? process.stdout),
+      colorTheme: resolveTaskLogColorTheme(options),
       ...(options.debugLogStream ? { debugLogStream: options.debugLogStream } : {})
     };
     this.columns = {
@@ -725,6 +775,8 @@ export class InkCLIRenderer implements CLIRenderer {
         columns={this.columns.value}
         rows={this.rows.value}
         finalStatus={this.finalStatus.value}
+        useColor={this.options.useColor}
+        colorTheme={this.options.colorTheme}
       />
     );
 

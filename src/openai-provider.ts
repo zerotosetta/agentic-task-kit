@@ -2,6 +2,7 @@ import OpenAI, { type ClientOptions } from "openai";
 
 import { AIProviderRequestError } from "./errors.js";
 import type {
+  AIChatContentPart,
   AIChatRequest,
   AIChatResponse,
   AIChatStream,
@@ -516,49 +517,130 @@ function writeProviderErrorDebugLog(
   });
 }
 
+function isTextContentPart(
+  part: AIChatContentPart
+): part is Extract<AIChatContentPart, { type: "text" | "input_text" }> {
+  return part.type === "text" || part.type === "input_text";
+}
+
+function toOpenAITextContentPart(
+  part: Extract<AIChatContentPart, { type: "text" | "input_text" }>
+): OpenAI.ChatCompletionContentPartText {
+  return {
+    type: "text",
+    text: part.text
+  };
+}
+
+function toOpenAIUserContentPart(
+  part: AIChatContentPart
+): OpenAI.Chat.Completions.ChatCompletionContentPartText | OpenAI.Chat.Completions.ChatCompletionContentPartImage {
+  if (isTextContentPart(part)) {
+    return toOpenAITextContentPart(part);
+  }
+
+  const imageURL =
+    typeof part.image_url === "string"
+      ? {
+          url: part.image_url,
+          ...(part.detail ? { detail: part.detail } : {})
+        }
+      : part.image_url
+        ? part.image_url
+        : part.imageUrl
+          ? {
+              url: part.imageUrl,
+              ...(part.detail ? { detail: part.detail } : {})
+            }
+          : undefined;
+
+  if (!imageURL?.url) {
+    throw new Error("AI chat image_url content part requires `imageUrl` or `image_url.url`.");
+  }
+
+  return {
+    type: "image_url",
+    image_url: imageURL
+  };
+}
+
 function toOpenAIMessage(message: AISessionMessage): OpenAI.ChatCompletionMessageParam {
   if (message.role === "assistant") {
+    const content =
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map((part) => {
+            if (!isTextContentPart(part)) {
+              throw new Error('OpenAI-compatible chat message role "assistant" only supports text content parts.');
+            }
+
+            return toOpenAITextContentPart(part);
+          });
     return {
       role: "assistant",
-      content: message.content
+      content
     };
   }
 
   if (message.role === "developer") {
+    const content =
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map((part) => {
+            if (!isTextContentPart(part)) {
+              throw new Error('OpenAI-compatible chat message role "developer" only supports text content parts.');
+            }
+
+            return toOpenAITextContentPart(part);
+          });
     return message.name
       ? {
           role: "developer",
-          content: message.content,
+          content,
           name: message.name
         }
       : {
           role: "developer",
-          content: message.content
+          content
         };
   }
 
   if (message.role === "system") {
+    const content =
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map((part) => {
+            if (!isTextContentPart(part)) {
+              throw new Error('OpenAI-compatible chat message role "system" only supports text content parts.');
+            }
+
+            return toOpenAITextContentPart(part);
+          });
     return message.name
       ? {
           role: "system",
-          content: message.content,
+          content,
           name: message.name
         }
       : {
           role: "system",
-          content: message.content
+          content
         };
   }
 
+  const content =
+    typeof message.content === "string"
+      ? message.content
+      : message.content.map(toOpenAIUserContentPart);
   return message.name
     ? {
         role: "user",
-        content: message.content,
+        content,
         name: message.name
       }
     : {
         role: "user",
-        content: message.content
+        content
       };
 }
 

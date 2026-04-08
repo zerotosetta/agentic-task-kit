@@ -252,12 +252,65 @@ const cycle = createCycle({
 
 HTTP 요청이 실패하면 `AIProviderRequestError` 가 throw 된다. 이 error 에는 `status`, `responseBody`, `requestId`, `originalError` 가 들어 있으니 catch 후 그대로 로깅하면 원인 추적이 쉽다.
 
+content-part message 도 지원한다. `user` role 은 text/image part 를, `developer` / `system` / `assistant` role 은 text part 만 허용한다.
+
+```ts
+await ctx.ai.chat({
+  messages: [
+    {
+      role: "developer",
+      content: [{ type: "text", text: "Return a concise summary." }]
+    },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Analyze this request." },
+        { type: "image_url", imageUrl: "https://example.test/input.png", detail: "low" }
+      ]
+    }
+  ]
+});
+```
+
 `ctx.ai.chat()` / `ctx.ai.chatStream()` 호출 시 runtime 이 자동으로 아래 task log 를 남긴다.
 
 - request 시점: `promptLength`, `fullPromptLength`, `messageCount`, `model`, prompt preview
 - response 시점: `outputLength`, output preview, finish reason, usage
 
 별도 `ctx.log.info()` 를 쓰지 않아도 line / compact / ink renderer 에서 이 값들을 바로 볼 수 있다.
+
+task failure 시 renderer 는 summary 뿐 아니라 stack trace 도 같이 출력한다. line mode 는 `stack ...` 라인을 추가로 쓰고, compact/ink 는 failure panel 과 right log panel 에 stack line 을 함께 노출한다.
+
+## Renderer 색상 설정
+renderer 는 level 별 기본 색상 테마를 갖고, config file 과 runtime option 으로 override 할 수 있다.
+
+```ts
+import { createCLIRenderer } from "agentic-task-kit";
+
+const renderer = createCLIRenderer({
+  mode: "ink",
+  useColor: true,
+  colorConfigPath: "./renderer-colors.json",
+  colorTheme: {
+    success: "cyan",
+    error: "magenta"
+  }
+});
+```
+
+config file 예시:
+
+```json
+{
+  "colors": {
+    "debug": "gray",
+    "info": "cyan",
+    "warn": "yellow",
+    "error": "red",
+    "success": "green"
+  }
+}
+```
 
 설정 파일 경로를 쓰고 싶으면:
 

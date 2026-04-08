@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -157,6 +160,77 @@ describe("CLI renderer", () => {
     compactRenderer.stop("fail");
 
     expect(output).toContain("Failure: Request timed out.");
+  });
+
+  it("prints failure stack traces in line mode", () => {
+    const renderer = createCLIRenderer({
+      enabled: false,
+      stream: stream as unknown as NodeJS.WriteStream
+    });
+
+    renderer.start();
+    renderer.onEvent({
+      type: "task.failed",
+      timestamp: Date.UTC(2026, 2, 28, 12, 0, 3),
+      workflowId: "report",
+      runId: "run_3",
+      taskName: "generate",
+      summary: "boom",
+      status: "fail",
+      meta: {
+        errorMessage: "boom",
+        errorDetails: {
+          stack: [
+            "Error: boom",
+            "    at GenerateTask.run (generate.ts:11:7)",
+            "    at demoFrame (demo.ts:24:3)"
+          ].join("\n")
+        }
+      }
+    });
+    renderer.stop("fail");
+
+    expect(output).toContain("stack Error: boom");
+    expect(output).toContain("GenerateTask.run");
+    expect(output).toContain("demoFrame");
+  });
+
+  it("applies configured log colors in line mode", () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "cycle-renderer-test-"));
+    const configPath = path.join(tempDir, "renderer.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        colors: {
+          warn: "magenta"
+        }
+      })
+    );
+
+    try {
+      const renderer = createCLIRenderer({
+        enabled: false,
+        stream: stream as unknown as NodeJS.WriteStream,
+        useColor: true,
+        colorConfigPath: configPath
+      });
+
+      renderer.start();
+      renderer.onTaskLog?.({
+        timestamp: Date.UTC(2026, 2, 28, 12, 0, 5),
+        workflowId: "report",
+        runId: "run_warn_color",
+        taskName: "generate",
+        level: "warn",
+        message: "watch color"
+      });
+      renderer.stop("success");
+
+      expect(output).toContain("\u001B[35m");
+      expect(output).toContain("watch color");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("prints memory warning summaries in line mode", () => {
