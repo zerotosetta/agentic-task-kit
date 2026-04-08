@@ -52,7 +52,7 @@ describe("CLI renderer", () => {
     renderer.stop("success");
 
     expect(output).toContain("workflow started");
-    expect(output).toContain("task info analyze Starting analysis");
+    expect(output).toContain("[INFO] task analyze Starting analysis");
     expect(output).toContain("promptLength=42");
     expect(output).not.toContain("\u001B[");
   });
@@ -112,7 +112,7 @@ describe("CLI renderer", () => {
     });
     lineRenderer.stop("fail");
 
-    expect(output).toContain("task.failed generate Request timed out.");
+    expect(output).toContain("[ERROR] task.failed generate Request timed out.");
 
     output = "";
     const ttyLike = stream as unknown as NodeJS.WriteStream & { isTTY?: boolean };
@@ -190,7 +190,7 @@ describe("CLI renderer", () => {
     });
     renderer.stop("fail");
 
-    expect(output).toContain("stack Error: boom");
+    expect(output).toContain("[ERROR] stack Error: boom");
     expect(output).toContain("GenerateTask.run");
     expect(output).toContain("demoFrame");
   });
@@ -253,7 +253,7 @@ describe("CLI renderer", () => {
     });
     renderer.stop("success");
 
-    expect(output).toContain("memory.warning similar_overwrite similar record overwritten at score 0.94");
+    expect(output).toContain("[WARN] memory.warning similar_overwrite similar record overwritten at score 0.94");
   });
 
   it("falls back to jsonl when ink mode is requested without an interactive tty", () => {

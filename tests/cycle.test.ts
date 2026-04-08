@@ -73,7 +73,7 @@ describe("Cycle foundation MVP", () => {
     expect(artifacts[0]?.name).toBe("report.md");
 
     expect(output).toContain("workflow started");
-    expect(output).toContain("task info analyze Starting analysis");
+    expect(output).toContain("[INFO] task analyze Starting analysis");
     expect(output).toContain("workflow completed");
     expect(output).not.toContain("task.log");
     expect(output).not.toContain("\u001B[");
@@ -131,9 +131,9 @@ describe("Cycle foundation MVP", () => {
     const result = await cycle.run("failing-report", createWorkflowInput());
 
     expect(result.frame.status).toBe("fail");
-    expect(output).toContain("task.failed failTask Validation mismatch: missing required field");
+    expect(output).toContain("[ERROR] task.failed failTask Validation mismatch: missing required field");
     expect(output).toContain(
-      "workflow failed failing-report failed reason=Validation mismatch: missing required field",
+      "[ERROR] workflow failed failing-report failed reason=Validation mismatch: missing required field",
     );
   });
 

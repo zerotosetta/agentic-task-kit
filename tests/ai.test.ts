@@ -111,8 +111,8 @@ describe("AI provider integration", () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]?.name).toBe("ai-summary.md");
 
-    expect(output).toContain("task info generateSummary Calling AI chat completion");
-    expect(output).toContain("task success generateSummary Stored AI summary");
+    expect(output).toContain("[INFO] task generateSummary Calling AI chat completion");
+    expect(output).toContain("[SUCCESS] task generateSummary Stored AI summary");
   });
 
   it("automatically logs prompt and output metadata for ctx.ai.chat()", async () => {
@@ -189,9 +189,9 @@ describe("AI provider integration", () => {
     const result = await cycle.run("monitoring", createWorkflowInput({ requestId: "issue-4" }));
 
     expect(result.frame.status).toBe("success");
-    expect(output).toContain("task info monitor AI chat request");
+    expect(output).toContain("[INFO] task monitor AI chat request");
     expect(output).toContain("promptLength=");
-    expect(output).toContain("task success monitor AI chat response");
+    expect(output).toContain("[SUCCESS] task monitor AI chat response");
     expect(output).toContain("outputLength=");
   });
 });
