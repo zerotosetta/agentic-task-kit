@@ -130,6 +130,32 @@ export function formatClock(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(11, 19);
 }
 
+function formatLevelBadge(level: TaskLogLevel): string {
+  return `[${level.toUpperCase()}]`;
+}
+
+function formatTimestampPrefix(timestamp: number, level: TaskLogLevel): string {
+  return `[${formatClock(timestamp)}] ${formatLevelBadge(level)}`;
+}
+
+function taskLogLevelForEvent(event: ExecutionEvent): TaskLogLevel {
+  switch (event.type) {
+    case "task.failed":
+    case "workflow.failed":
+      return "error";
+    case "task.completed":
+    case "workflow.completed":
+    case "branch.completed":
+    case "join.completed":
+      return "success";
+    case "memory.warning":
+    case "memory.expire":
+      return "warn";
+    default:
+      return "info";
+  }
+}
+
 export function formatDuration(durationMs: number | undefined): string {
   if (durationMs === undefined || durationMs < 0) {
     return "-";
@@ -396,7 +422,7 @@ function failureSuffix(summary: string, reason: string | undefined): string {
 }
 
 export function lineForEvent(event: ExecutionEvent): string {
-  const prefix = `[${formatClock(event.timestamp)}]`;
+  const prefix = formatTimestampPrefix(event.timestamp, taskLogLevelForEvent(event));
   const failureReason = failureReasonForEvent(event);
 
   switch (event.type) {
@@ -430,7 +456,7 @@ export function linesForEvent(event: ExecutionEvent): string[] {
     return lines;
   }
 
-  const prefix = `[${formatClock(event.timestamp)}] stack `;
+  const prefix = `${formatTimestampPrefix(event.timestamp, "error")} stack `;
   for (const stackLine of stackLines) {
     lines.push(`${prefix}${stackLine}`);
   }
@@ -439,9 +465,9 @@ export function linesForEvent(event: ExecutionEvent): string[] {
 }
 
 export function lineForTaskLog(event: TaskLogEvent): string {
-  const prefix = `[${formatClock(event.timestamp)}]`;
+  const prefix = formatTimestampPrefix(event.timestamp, event.level);
   const taskName = event.taskName ? ` ${event.taskName}` : "";
-  return `${prefix} task ${event.level}${taskName} ${event.message}${formatTaskLogMeta(event.meta)}`;
+  return `${prefix} task${taskName} ${event.message}${formatTaskLogMeta(event.meta)}`;
 }
 
 export function jsonForTaskLog(event: TaskLogEvent): string {
@@ -804,7 +830,7 @@ export function pushTaskLog(
     level: event.level,
     source: "task",
     ...(event.taskName !== undefined ? { taskName: event.taskName } : {}),
-    text: `${formatClock(event.timestamp)} [${event.level.toUpperCase()}] ${event.taskName ?? "-"} ${event.message}${formatTaskLogMeta(event.meta)}`
+    text: `${formatTimestampPrefix(event.timestamp, event.level)} ${event.taskName ?? "-"} ${event.message}${formatTaskLogMeta(event.meta)}`
   });
   state.timeline = state.timeline.slice(-maxTimelineRows);
 }
@@ -904,11 +930,12 @@ export function buildDebugTimelineText(payload: Record<string, unknown>, timesta
       : "";
   const error = typeof payload.error === "string" ? ` ${payload.error}` : "";
 
-  return `${formatClock(timestamp)} [${badge}] ${provider} ${method} ${clipUrl(url)}${status}${durationMs}${requestId}${error}`.trim();
+  return `${formatTimestampPrefix(timestamp, "debug")} [${badge}] ${provider} ${method} ${clipUrl(url)}${status}${durationMs}${requestId}${error}`.trim();
 }
 
 export function buildMemoryTimelineText(event: ExecutionEvent): string {
-  const prefix = `${formatClock(event.timestamp)} [MEM]`;
+  const level = event.type === "memory.warning" || event.type === "memory.expire" ? "warn" : "info";
+  const prefix = `${formatTimestampPrefix(event.timestamp, level)} [MEM]`;
 
   switch (event.type) {
     case "memory.before_step": {
@@ -996,14 +1023,14 @@ export function pushDebugLogLine(
   maxTimelineRows: number
 ): void {
   const prefix = "[cycle:http] ";
-  let text = `${formatClock(timestamp)} [DBG] ${line.trim()}`;
+  let text = `${formatTimestampPrefix(timestamp, "debug")} [DBG] ${line.trim()}`;
 
   if (line.startsWith(prefix)) {
     try {
       const payload = JSON.parse(line.slice(prefix.length)) as Record<string, unknown>;
       text = buildDebugTimelineText(payload, timestamp);
     } catch {
-      text = `${formatClock(timestamp)} [DBG] ${line.slice(prefix.length).trim()}`;
+      text = `${formatTimestampPrefix(timestamp, "debug")} [DBG] ${line.slice(prefix.length).trim()}`;
     }
   }
 
@@ -1039,7 +1066,7 @@ export function pushFailureStackTimeline(
       level: "error",
       source: "task",
       ...(taskName !== undefined ? { taskName } : {}),
-      text: `${formatClock(event.timestamp)} [STACK] ${stackLine}`
+      text: `${formatTimestampPrefix(event.timestamp, "error")} [STACK] ${stackLine}`
     });
   });
   state.timeline = state.timeline.slice(-maxTimelineRows);
