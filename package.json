@@ -44,7 +44,13 @@
     "example": "tsx ./scripts/run-example.ts",
     "example:consumer": "tsx ./scripts/run-consumer-example.ts",
     "example:openai": "tsx ./scripts/run-openai-example.ts",
-    "example:openai:stream": "tsx ./scripts/run-openai-streaming-example.ts"
+    "example:openai:stream": "tsx ./scripts/run-openai-streaming-example.ts",
+    "issue:repro:all": "npm --prefix ./issue-repro-lab run repro:all",
+    "issue:repro:4": "npm --prefix ./issue-repro-lab run repro:issue-4",
+    "issue:repro:14": "npm --prefix ./issue-repro-lab run repro:issue-14",
+    "issue:repro:15": "npm --prefix ./issue-repro-lab run repro:issue-15",
+    "issue:repro:16": "npm --prefix ./issue-repro-lab run repro:issue-16",
+    "issue:repro:17": "npm --prefix ./issue-repro-lab run repro:issue-17"
   },
   "keywords": [
     "workflow",

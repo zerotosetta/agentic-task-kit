@@ -32,6 +32,7 @@ npm install agentic-task-kit
 - `src/`: 라이브러리 소스 코드
 - `tests/`: unit / integration test
 - `scripts/`: example consumer runner
+- `issue-repro-lab/`: open issue 재연 전용 서브 프로젝트
 - `docs/`: 로컬 실행 및 runtime 참고 문서
 
 ## 시작하기
@@ -157,6 +158,10 @@ git clone https://github.com/zerotosetta/agentic-task-kit-axpm.git
 cd agentic-task-kit-axpm/example-project
 npm install
 npm run start
+```
+- issue reproduction lab:
+```bash
+npm run issue:repro:all
 ```
 
 ## Config file

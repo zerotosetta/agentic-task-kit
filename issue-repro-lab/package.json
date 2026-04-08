@@ -1,0 +1,15 @@
+{
+  "name": "issue-repro-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:library": "npm --prefix .. run build",
+    "typecheck": "npm run build:library && node ../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "repro:issue-4": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-4-prompt-output-monitoring.ts",
+    "repro:issue-14": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-14-new-chat-input-shape.ts",
+    "repro:issue-15": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-15-memory-write-drop.ts",
+    "repro:issue-16": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-16-ink-stack-infinite.tsx",
+    "repro:issue-17": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/issue-17-stack-trace-hidden.ts",
+    "repro:all": "npm run build:library && node ../node_modules/tsx/dist/cli.mjs ./src/run-all.ts"
+  }
+}
