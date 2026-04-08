@@ -492,7 +492,9 @@ export function linesForEvent(event: ExecutionEvent): string[] {
 export function lineForTaskLog(event: TaskLogEvent): string {
   const prefix = formatTimestampPrefix(event.timestamp, event.level);
   const taskName = event.taskName ? ` ${event.taskName}` : "";
-  return `${prefix} task${taskName} ${event.message}${formatTaskLogMeta(event.meta)}`;
+  return `${prefix} task${taskName} ${event.message}${formatTaskLogMeta(event.meta, {
+    clipValues: false
+  })}`;
 }
 
 export function jsonForTaskLog(event: TaskLogEvent): string {
@@ -860,7 +862,9 @@ export function pushTaskLog(
     level: event.level,
     source: "task",
     ...(event.taskName !== undefined ? { taskName: event.taskName } : {}),
-    text: `${formatTimestampPrefix(event.timestamp, event.level)} ${event.taskName ?? "-"} ${event.message}${formatTaskLogMeta(event.meta)}`
+    text: `${formatTimestampPrefix(event.timestamp, event.level)} ${event.taskName ?? "-"} ${event.message}${formatTaskLogMeta(event.meta, {
+      clipValues: true
+    })}`
   });
   state.timeline = state.timeline.slice(-maxTimelineRows);
 }
@@ -905,9 +909,14 @@ function stringifyMetaValue(value: unknown): string {
   }
 }
 
-function renderTaskLogMetaValue(value: unknown): string {
+function renderTaskLogMetaValue(
+  value: unknown,
+  options: {
+    clipValues: boolean;
+  }
+): string {
   if (typeof value === "string") {
-    return JSON.stringify(clipMiddle(value, 96));
+    return JSON.stringify(options.clipValues ? clipMiddle(value, 96) : value);
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
@@ -915,7 +924,8 @@ function renderTaskLogMetaValue(value: unknown): string {
   }
 
   if (Array.isArray(value)) {
-    return JSON.stringify(clipMiddle(value.map((entry) => stringifyMetaValue(entry)).join(","), 96));
+    const serialized = value.map((entry) => stringifyMetaValue(entry)).join(",");
+    return JSON.stringify(options.clipValues ? clipMiddle(serialized, 96) : serialized);
   }
 
   if (!value || typeof value !== "object") {
@@ -923,20 +933,27 @@ function renderTaskLogMetaValue(value: unknown): string {
   }
 
   try {
-    return JSON.stringify(clipMiddle(JSON.stringify(value), 96));
+    const serialized = JSON.stringify(value);
+    return JSON.stringify(options.clipValues ? clipMiddle(serialized, 96) : serialized);
   } catch {
-    return JSON.stringify(clipMiddle(String(value), 96));
+    const serialized = String(value);
+    return JSON.stringify(options.clipValues ? clipMiddle(serialized, 96) : serialized);
   }
 }
 
-function formatTaskLogMeta(meta: Record<string, unknown> | undefined): string {
+function formatTaskLogMeta(
+  meta: Record<string, unknown> | undefined,
+  options: {
+    clipValues: boolean;
+  }
+): string {
   if (!meta) {
     return "";
   }
 
   const rendered = Object.entries(meta)
     .map(([key, value]) => {
-      const renderedValue = renderTaskLogMetaValue(value);
+      const renderedValue = renderTaskLogMetaValue(value, options);
       return renderedValue ? `${key}=${renderedValue}` : "";
     })
     .filter(Boolean)
