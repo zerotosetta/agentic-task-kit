@@ -22,6 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test:architecture
       - run: npm test
       - run: npm run build:all-in-one
       - run: npm run test:package
@@ -29,6 +30,8 @@ jobs:
       - run: npm run example:consumer
       - run: npm run issue:repro:all
       - run: npm ci
+        working-directory: sample-project
+      - run: npm run test:helpers
         working-directory: sample-project
       - run: npm run typecheck
         working-directory: sample-project

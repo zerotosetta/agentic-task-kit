@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:helpers": "node --import tsx --test ./tests/sample-helpers.test.ts",
     "build:library": "npm --prefix .. run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "npm run build:library && tsx ./src/main.ts",

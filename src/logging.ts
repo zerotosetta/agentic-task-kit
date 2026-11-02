@@ -1,10 +1,5 @@
-import type {
-  ExecutionEvent,
-  TaskLogEvent,
-  TaskLogLevel,
-  TaskLogger
-} from "./types.js";
 import { ExecutionBroadcaster } from "./events.js";
+import type { ExecutionEvent, TaskLogEvent, TaskLogLevel, TaskLogger } from "./types.js";
 
 type TaskLoggerArgs = {
   broadcaster: ExecutionBroadcaster;
@@ -19,14 +14,14 @@ function buildTaskLogEvent(
   args: TaskLoggerArgs,
   level: TaskLogLevel,
   message: string,
-  meta?: Record<string, unknown>
+  meta?: Record<string, unknown>,
 ): TaskLogEvent {
   const event: TaskLogEvent = {
     timestamp: args.now(),
     workflowId: args.workflowId,
     runId: args.runId,
     level,
-    message
+    message,
   };
 
   if (args.taskName !== undefined) {
@@ -50,7 +45,7 @@ function toExecutionEvent(event: TaskLogEvent): ExecutionEvent {
     timestamp: event.timestamp,
     workflowId: event.workflowId,
     runId: event.runId,
-    summary: event.message
+    summary: event.message,
   };
 
   if (event.taskName !== undefined) {
@@ -62,8 +57,8 @@ function toExecutionEvent(event: TaskLogEvent): ExecutionEvent {
   }
 
   executionEvent.meta = {
-      ...event.meta,
-      level: event.level
+    ...event.meta,
+    level: event.level,
   };
 
   return executionEvent;
@@ -71,8 +66,8 @@ function toExecutionEvent(event: TaskLogEvent): ExecutionEvent {
 
 export function createTaskLogger(args: TaskLoggerArgs): TaskLogger {
   const emit = (event: TaskLogEvent): void => {
-    void args.broadcaster.emitTaskLog(event);
-    void args.broadcaster.emit(toExecutionEvent(event));
+    args.broadcaster.enqueue(args.broadcaster.emitTaskLog(event));
+    args.broadcaster.enqueue(args.broadcaster.emit(toExecutionEvent(event)));
   };
 
   return {
@@ -91,6 +86,6 @@ export function createTaskLogger(args: TaskLoggerArgs): TaskLogger {
     },
     success(message, meta) {
       emit(buildTaskLogEvent(args, "success", message, meta));
-    }
+    },
   };
 }

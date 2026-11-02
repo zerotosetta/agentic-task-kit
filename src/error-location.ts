@@ -34,7 +34,7 @@ function parseStackFrame(line: string): ErrorStackFrame | undefined {
       file: normalizeStackPath(file),
       line: Number.parseInt(lineNumber, 10),
       column: Number.parseInt(columnNumber, 10),
-      raw: line.trim()
+      raw: line.trim(),
     };
   }
 
@@ -52,7 +52,7 @@ function parseStackFrame(line: string): ErrorStackFrame | undefined {
     file: normalizeStackPath(file),
     line: Number.parseInt(lineNumber, 10),
     column: Number.parseInt(columnNumber, 10),
-    raw: line.trim()
+    raw: line.trim(),
   };
 }
 
@@ -82,9 +82,7 @@ function displayFile(file: string): string {
 export function formatErrorSourceLocation(location: ErrorSourceLocation): string {
   return `${displayFile(location.file)}:${location.line}${
     location.column !== undefined ? `:${location.column}` : ""
-  }${
-    location.functionName ? ` ${location.functionName}` : ""
-  }`;
+  }${location.functionName ? ` ${location.functionName}` : ""}`;
 }
 
 export function parseErrorStackFrames(stack: string | undefined): ErrorStackFrame[] {
@@ -100,7 +98,7 @@ export function parseErrorStackFrames(stack: string | undefined): ErrorStackFram
 }
 
 export function extractSourceLocationFromStack(
-  stack: string | undefined
+  stack: string | undefined,
 ): ErrorSourceLocation | undefined {
   const frames = parseErrorStackFrames(stack);
   if (frames.length === 0) {
@@ -112,10 +110,12 @@ export function extractSourceLocationFromStack(
       (frame) =>
         !isInternalFrame(frame) &&
         typeof frame.functionName === "string" &&
-        /(?:^|[.\s])run$/u.test(frame.functionName)
+        /(?:^|[.\s])(?:run|before|after)$/u.test(frame.functionName),
     ) ??
     frames.find((frame) => !isInternalFrame(frame)) ??
-    frames.find((frame) => !frame.file.startsWith("node:") && !frame.file.startsWith("internal/")) ??
+    frames.find(
+      (frame) => !frame.file.startsWith("node:") && !frame.file.startsWith("internal/"),
+    ) ??
     frames[0];
   if (!preferred) {
     return undefined;
@@ -126,21 +126,23 @@ export function extractSourceLocationFromStack(
     line: preferred.line,
     column: preferred.column,
     ...(preferred.functionName ? { functionName: preferred.functionName } : {}),
-    display: ""
+    display: "",
   };
   location.display = formatErrorSourceLocation(location);
   return location;
 }
 
 export function extractSourceLocationFromErrorDetails(
-  details: unknown
+  details: unknown,
 ): ErrorSourceLocation | undefined {
   if (!details || typeof details !== "object" || Array.isArray(details)) {
     return undefined;
   }
 
   const sourceLocation =
-    "sourceLocation" in details ? (details as { sourceLocation?: unknown }).sourceLocation : undefined;
+    "sourceLocation" in details
+      ? (details as { sourceLocation?: unknown }).sourceLocation
+      : undefined;
   if (
     sourceLocation &&
     typeof sourceLocation === "object" &&
@@ -151,18 +153,18 @@ export function extractSourceLocationFromErrorDetails(
     const normalized: ErrorSourceLocation = {
       file: String((sourceLocation as { file: unknown }).file),
       line: Number((sourceLocation as { line: unknown }).line),
-      ...(("column" in sourceLocation &&
-        typeof (sourceLocation as { column?: unknown }).column === "number")
+      ...("column" in sourceLocation &&
+      typeof (sourceLocation as { column?: unknown }).column === "number"
         ? { column: (sourceLocation as { column: number }).column }
         : {}),
-      ...(("functionName" in sourceLocation &&
-        typeof (sourceLocation as { functionName?: unknown }).functionName === "string")
+      ...("functionName" in sourceLocation &&
+      typeof (sourceLocation as { functionName?: unknown }).functionName === "string"
         ? { functionName: (sourceLocation as { functionName: string }).functionName }
         : {}),
       display:
         typeof (sourceLocation as { display?: unknown }).display === "string"
           ? (sourceLocation as unknown as { display: string }).display
-          : ""
+          : "",
     };
 
     if (!normalized.display) {
