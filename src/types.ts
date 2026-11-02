@@ -120,3 +120,10 @@ export type {
   WorkflowDefinition,
   WorkflowRuntimeController,
 } from "./types/workflow.js";
+export type {
+  CommandAIProviderOptions,
+  CommandAssistantResult,
+  CommandExecutionResult,
+  CommandProviderSettings,
+  CommandRequestOptions,
+} from "./types/command.js";

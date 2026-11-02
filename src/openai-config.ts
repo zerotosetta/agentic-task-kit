@@ -58,6 +58,7 @@ function toProviderOptions(
 
   if (config.apiType !== undefined) options.apiType = config.apiType;
   if (config.webChat !== undefined) options.webChat = { ...config.webChat };
+  if (config.command !== undefined) options.command = { ...config.command };
   if (config.defaultPayload !== undefined)
     options.defaultPayload = { ...config.defaultPayload };
 
@@ -144,6 +145,9 @@ export function loadOpenAICompatibleChatProviderOptionsFromConfigFile(
   return {
     ...fileOptions,
     ...options.overrides,
+    ...(options.overrides?.command
+      ? { command: { ...fileOptions.command, ...options.overrides.command } }
+      : {}),
     ...(options.overrides?.webChat
       ? { webChat: { ...fileOptions.webChat, ...options.overrides.webChat } }
       : {}),

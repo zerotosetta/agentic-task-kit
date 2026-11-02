@@ -52,9 +52,11 @@ function buildPromptMonitoringMeta(
   request: AIChatRequest,
 ): Record<string, unknown> {
   const messages = request.messages ?? [];
-  const nativePrompt = request.payload
-    ? JSON.stringify(toSerializableValue(request.payload))
-    : "";
+  const nativePrompt =
+    (provider.apiType === "command" ? request.command?.message : undefined) ??
+    (request.payload
+      ? JSON.stringify(toSerializableValue(request.payload))
+      : "");
   const fullPrompt =
     nativePrompt ||
     messages
