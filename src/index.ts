@@ -1,5 +1,18 @@
 export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
+export { createWebChatAIProvider } from "./webchat-provider.js";
+export type {
+  WebChatAIProvider,
+  WebChatAIProviderOptions,
+  WebChatAssistantResult,
+  WebChatCompletion,
+  WebChatCompletionContext,
+  WebChatEndpoint,
+  WebChatProviderSettings,
+  WebChatRequestOptions,
+  WebChatSession,
+  WebChatValuePath,
+} from "./types/webchat.js";
 export {
   createAIProvider,
   createAIProviderFromConfigFile,

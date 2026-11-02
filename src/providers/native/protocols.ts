@@ -10,7 +10,10 @@ import type {
 } from "../../types.js";
 import { mergePayload } from "../payload.js";
 
-export type NativeAPIType = Exclude<AIAPIType, "openai-chat-completions">;
+export type NativeAPIType = Exclude<
+  AIAPIType,
+  "openai-chat-completions" | "webchat"
+>;
 export function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

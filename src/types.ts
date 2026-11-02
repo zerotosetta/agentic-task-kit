@@ -1,4 +1,16 @@
 export type {
+  WebChatAIProvider,
+  WebChatAIProviderOptions,
+  WebChatAssistantResult,
+  WebChatCompletion,
+  WebChatCompletionContext,
+  WebChatEndpoint,
+  WebChatProviderSettings,
+  WebChatRequestOptions,
+  WebChatSession,
+  WebChatValuePath,
+} from "./types/webchat.js";
+export type {
   AIAPIType,
   AIProviderOptions,
   AIProviderFileConfig,

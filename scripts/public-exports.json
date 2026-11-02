@@ -25,6 +25,7 @@
   "createOpenAICompatibleChatProviderFromConfigFile",
   "createTaskLogger",
   "createUnavailableAIProvider",
+  "createWebChatAIProvider",
   "createWorkflowInput",
   "getGlobalWorkflowRuntimeController",
   "getWorkflowInputValue",

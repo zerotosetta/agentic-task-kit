@@ -25,6 +25,7 @@ import { createClientOptions, resolveOptions } from "./options.js";
 import { AsyncQueue } from "./queue.js";
 import { resolveRequestModel } from "../payload.js";
 import { createNativeAIProvider } from "../native/provider.js";
+import { createWebChatAIProvider } from "../webchat/provider.js";
 
 class OpenAICompatibleChatProvider implements AIProvider {
   readonly apiType = "openai-chat-completions" as const;
@@ -243,6 +244,8 @@ class OpenAICompatibleChatProvider implements AIProvider {
 export function createOpenAICompatibleChatProvider(
   options?: OpenAICompatibleChatProviderOptions,
 ): AIProvider {
+  if (options?.apiType === "webchat")
+    return createWebChatAIProvider({ ...options, apiType: "webchat" });
   if (
     options?.apiType !== undefined &&
     options.apiType !== "openai-chat-completions"

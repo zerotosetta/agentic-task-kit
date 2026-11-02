@@ -27,6 +27,7 @@ npm install agentic-task-kit
 - `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
 - OpenAI-compatible Chat Completions adapter
 - Responses / Anthropic Messages / Gemini generateContent API 선택 및 [원본 payload 전달](./docs/ai-api.md)
+- [세션 기반 WebChat provider](./docs/webchat-api.md): 세션 생성/등록, 설정 가능한 답변 요청·조회·콜백
 - OpenAI-compatible content-part chat input
 - separate OpenAI-compatible config file loading
 - compact CLI renderer

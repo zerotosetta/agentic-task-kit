@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Add a configurable session-based WebChat provider, low-level session/message operations, serialized session reuse, and buffered JSON completion.
+
 - Support OpenAI Responses, Anthropic Messages, and Gemini generateContent through `createAIProvider()` / JSON configuration.
 - Accept native request payloads without common messages; support defaults, explicit replacement, JSON/SSE normalization, raw tool events, and cancellation.
 

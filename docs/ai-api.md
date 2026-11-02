@@ -8,6 +8,7 @@
 | `openai-responses` | OpenAI `/v1/responses` | `input`, `max_output_tokens`, `reasoning.effort` |
 | `anthropic-messages` | Anthropic `/v1/messages` | `system`, `messages`, `max_tokens` |
 | `gemini-generate-content` | Gemini `/v1beta/models/{model}:generateContent` | `systemInstruction`, `contents`, `generationConfig` |
+| `webchat` | [세션 기반 WebChat](./webchat-api.md) | 세션 생성 → 메시지 등록 → 설정된 답변 확인 |
 
 호환 서버는 `baseURL` 과 `defaultHeaders` 로 지정한다. 기존 `createOpenAICompatibleChatProvider()` / `createOpenAIChatProvider()` 도 유지되며 같은 옵션을 지원한다.
 

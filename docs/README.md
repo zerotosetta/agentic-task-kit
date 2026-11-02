@@ -4,6 +4,7 @@
 문서는 실제 사용 기준으로 짧고 명확하게 유지합니다.
 
 권장 문서:
+- [세션 기반 WebChat provider](./webchat-api.md)
 - [다양한 AI API 형식과 원본 payload](./ai-api.md)
 - developer guide
 - memory guide
