@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import { build } from "esbuild";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
-const graph = new Map();
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = join(projectRoot, "src");
+const entries = [];
 async function inspect(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const file = join(directory, entry.name);
@@ -13,29 +14,32 @@ async function inspect(directory) {
       await inspect(file);
       continue;
     }
-    if (!/\.tsx?$/u.test(file)) continue;
-    const output = ts.transpileModule(await readFile(file, "utf8"), {
-      fileName: file,
-      compilerOptions: {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-        jsx: ts.JsxEmit.ReactJSX,
-      },
-    }).outputText;
-    const parsed = ts.createSourceFile(file, output, ts.ScriptTarget.Latest, true);
-    const dependencies = parsed.statements
-      .filter((node) => ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      .flatMap((node) =>
-        node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)
-          ? [node.moduleSpecifier.text]
-          : [],
-      )
-      .filter((specifier) => specifier.startsWith("."))
-      .map((specifier) => resolve(dirname(file), specifier));
-    graph.set(file, dependencies);
+    if (/\.tsx?$/u.test(file)) entries.push(file);
   }
 }
 await inspect(root);
+// Inspect resolved runtime imports, excluding erased type-only imports.
+const { metafile } = await build({
+  absWorkingDir: projectRoot,
+  entryPoints: entries,
+  outdir: ".architecture-check",
+  bundle: true,
+  packages: "external",
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  jsx: "automatic",
+  write: false,
+  metafile: true,
+});
+const graph = new Map(
+  Object.entries(metafile.inputs).map(([file, input]) => [
+    resolve(projectRoot, file),
+    input.imports
+      .filter((dependency) => !dependency.external && dependency.kind === "import-statement")
+      .map((dependency) => resolve(projectRoot, dependency.path)),
+  ]),
+);
 const completed = new Set();
 function visit(file, chain = []) {
   assert.ok(
@@ -44,13 +48,8 @@ function visit(file, chain = []) {
   );
   if (completed.has(file)) return;
   for (const dependency of graph.get(file) ?? []) {
-    const target = [
-      dependency,
-      dependency.replace(/\.js$/u, ".ts"),
-      dependency.replace(/\.js$/u, ".tsx"),
-    ].find((candidate) => graph.has(candidate));
-    assert.ok(target, `Unresolved internal import ${dependency} from ${file}`);
-    visit(target, [...chain, file]);
+    assert.ok(graph.has(dependency), `Unresolved internal import ${dependency} from ${file}`);
+    visit(dependency, [...chain, file]);
   }
   completed.add(file);
 }

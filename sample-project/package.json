@@ -20,14 +20,17 @@
     "start:sub:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts"
   },
   "dependencies": {
-    "@leflect-java/cli": "0.1.4",
-    "@leflect-java/core": "0.1.4",
+    "@leflect-java/cli": "0.1.7",
+    "@leflect-java/core": "0.1.7",
     "agentic-task-kit": "file:..",
     "cross-env": "^10.1.0"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

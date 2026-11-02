@@ -1,12 +1,10 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
-import { createOpenAICompatibleChatProvider, createOpenAIChatProvider } from "./openai-provider.js";
+import { createOpenAICompatibleChatProvider } from "./openai-provider.js";
 import type {
   AIProvider,
-  OpenAIChatProviderConfigFileOptions,
   OpenAIChatProviderFileConfig,
-  OpenAIChatProviderOptions,
   OpenAICompatibleChatProviderConfigFileOptions,
   OpenAICompatibleChatProviderFileConfig,
   OpenAICompatibleChatProviderOptions
@@ -172,18 +170,8 @@ export function createOpenAICompatibleChatProviderFromConfigFile(
   );
 }
 
-export function loadOpenAIChatProviderOptionsFromConfigFile(
-  options: OpenAIChatProviderConfigFileOptions = {}
-): OpenAIChatProviderOptions {
-  return loadOpenAICompatibleChatProviderOptionsFromConfigFile(options);
-}
-
-export function resolveOpenAIChatConfigPath(configPath?: string): string | null {
-  return resolveOpenAICompatibleChatConfigPath(configPath);
-}
-
-export function createOpenAIChatProviderFromConfigFile(
-  options?: OpenAIChatProviderConfigFileOptions
-): AIProvider {
-  return createOpenAIChatProvider(loadOpenAIChatProviderOptionsFromConfigFile(options));
-}
+export {
+  loadOpenAICompatibleChatProviderOptionsFromConfigFile as loadOpenAIChatProviderOptionsFromConfigFile,
+  resolveOpenAICompatibleChatConfigPath as resolveOpenAIChatConfigPath,
+  createOpenAICompatibleChatProviderFromConfigFile as createOpenAIChatProviderFromConfigFile,
+};

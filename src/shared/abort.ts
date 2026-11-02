@@ -10,30 +10,5 @@ export function combineAbortSignals(
     return activeSignals[0];
   }
 
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any(activeSignals);
-  }
-
-  const controller = new AbortController();
-  const cleanup = (): void => {
-    for (const signal of activeSignals) {
-      signal.removeEventListener("abort", onAbort);
-    }
-  };
-  const onAbort = (event: Event): void => {
-    const signal = event.target as AbortSignal;
-    cleanup();
-    controller.abort(signal.reason);
-  };
-
-  for (const signal of activeSignals) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      return controller.signal;
-    }
-
-    signal.addEventListener("abort", onAbort, { once: true });
-  }
-
-  return controller.signal;
+  return AbortSignal.any(activeSignals);
 }

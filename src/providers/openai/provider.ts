@@ -7,7 +7,6 @@ import type {
   AIChatStreamChunk,
   AIChatUsage,
   AIProvider,
-  OpenAIChatProviderOptions,
   OpenAICompatibleChatProviderOptions,
 } from "../../types.js";
 import { toProviderRequestError, writeProviderErrorDebugLog } from "./errors.js";
@@ -199,6 +198,4 @@ export function createOpenAICompatibleChatProvider(
   return new OpenAICompatibleChatProvider(options);
 }
 
-export function createOpenAIChatProvider(options?: OpenAIChatProviderOptions): AIProvider {
-  return createOpenAICompatibleChatProvider(options);
-}
+export { createOpenAICompatibleChatProvider as createOpenAIChatProvider };

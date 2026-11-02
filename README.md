@@ -5,6 +5,8 @@ Cycle foundation MVP 를 구현하는 저장소입니다.
 
 Windows / PowerShell 설치와 실행 명령은 [local setup](./docs/local-setup.md#windows--powershell) 을 참고하세요. sample 의 npm scripts 는 Windows 와 POSIX shell 을 지원합니다.
 
+Node.js **22.12 이상**이 필요합니다. Windows/Linux의 Node 22·24·26에서 검증합니다.
+
 ## Install
 ```bash
 npm install agentic-task-kit

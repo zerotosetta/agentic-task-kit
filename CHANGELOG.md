@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Require Node.js 22.12 or newer; verify Windows/Linux on Node 22, 24, and 26.
+- Upgrade to TypeScript 7, Ink 8, React 19.3, OpenAI SDK 7, and Vitest 5 with Vite 8.
+- Replace compiler API tooling with the public TypeScript CLI and esbuild's resolved import graph.
+- Remove obsolete abort-signal fallback and duplicate OpenAIChat wrapper implementations while preserving public aliases.
+- Upgrade sample dependencies and remove deprecated TypeScript configuration and internal CLI paths.
+
 ## v0.1.8 - 2026-04-08
 
 - feat: include changelog in release workflow (#32)

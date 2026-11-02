@@ -1,4 +1,6 @@
-import ts from "typescript";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -8,18 +10,6 @@ import {
   type IssueReproResult
 } from "./shared/result.js";
 
-function toLine(diagnostic: ts.Diagnostic): string {
-  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
-  if (!diagnostic.file || diagnostic.start === undefined) {
-    return message;
-  }
-
-  const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
-    diagnostic.start
-  );
-  return `${diagnostic.file.fileName}:${line + 1}:${character + 1} ${message}`;
-}
-
 export function runIssue14Repro(): IssueReproResult {
   const thisDir = path.dirname(fileURLToPath(import.meta.url));
   const fixtureFile = path.resolve(
@@ -27,18 +17,26 @@ export function runIssue14Repro(): IssueReproResult {
     "../fixtures/issue-14-new-chat-input-shape.ts"
   );
 
-  const program = ts.createProgram([fixtureFile], {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    strict: true,
-    noEmit: true,
-    skipLibCheck: true,
-    esModuleInterop: true
+  const require = createRequire(import.meta.url);
+  const manifestPath = require.resolve("typescript/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    bin: { tsc: string };
+  };
+  const result = spawnSync(process.execPath, [
+    path.resolve(path.dirname(manifestPath), manifest.bin.tsc),
+    "--ignoreConfig", "--target", "ES2022", "--module", "NodeNext",
+    "--strict", "--noEmit", "--skipLibCheck", "--esModuleInterop",
+    "--pretty", "false", fixtureFile
+  ], {
+    encoding: "utf8",
+    timeout: 30_000,
+    windowsHide: true
   });
-  const diagnostics = ts
-    .getPreEmitDiagnostics(program)
-    .map(toLine);
+  if (result.error) throw result.error;
+  const diagnostics = `${result.stdout}${result.stderr}`.trim().split(/\r?\n/u).filter(Boolean);
+  if (result.status !== 0 && (result.status === null || diagnostics.length === 0)) {
+    throw new Error(`TypeScript CLI failed: ${result.signal ?? result.status}`);
+  }
 
   return {
     issue: 14,
