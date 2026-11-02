@@ -41,6 +41,9 @@ class SessionWebChatProvider implements WebChatAIProvider {
     const count = options.webChat?.maxSessionCount;
     if (count !== undefined && (!Number.isInteger(count) || count < 1))
       throw new Error("WebChat maxSessionCount must be a positive integer.");
+    const persist = options.webChat?.persistAssistantReply;
+    if (persist !== undefined && typeof persist !== "boolean")
+      throw new Error("WebChat persistAssistantReply must be a boolean.");
   }
   private model(request: AIChatRequest) {
     return request.model ?? this.defaultChatModel ?? "unconfigured";
@@ -49,6 +52,36 @@ class SessionWebChatProvider implements WebChatAIProvider {
     const base = new URL(request.http?.baseURL ?? this.client.baseURL);
     if (!base.pathname.endsWith("/")) base.pathname += "/";
     return `${base.href}|${sessionId}`;
+  }
+  private validateSessionId(sessionId: string): void {
+    if (typeof sessionId !== "string" || !sessionId)
+      throw new Error("WebChat sessionId must be a non-empty string.");
+  }
+  private readSession(
+    raw: unknown,
+    fallbackModel: string,
+    expectedId?: string,
+  ): WebChatSession {
+    const sessionId = valueAt(
+      raw,
+      this.options.webChat?.sessionIdPath ?? ["session_id"],
+    );
+    if (typeof sessionId !== "string" || !sessionId)
+      throw new Error(
+        "WebChat session response has no valid session_id. Configure sessionIdPath for a different schema.",
+      );
+    if (expectedId !== undefined && sessionId !== expectedId)
+      throw new Error(
+        "WebChat session response does not match the requested sessionId.",
+      );
+    return {
+      sessionId,
+      model:
+        typeof record(raw).llm_id === "string"
+          ? (record(raw).llm_id as string)
+          : fallbackModel,
+      raw,
+    };
   }
   private async create(
     request: AIChatRequest,
@@ -84,19 +117,7 @@ class SessionWebChatProvider implements WebChatAIProvider {
       {},
       true,
     );
-    const sessionId = valueAt(raw, settings.sessionIdPath ?? ["session_id"]);
-    if (typeof sessionId !== "string" || !sessionId)
-      throw new Error(
-        "WebChat createSession response has no valid session_id. Configure sessionIdPath for a different schema.",
-      );
-    return {
-      sessionId,
-      model:
-        typeof record(raw).llm_id === "string"
-          ? (record(raw).llm_id as string)
-          : body.llm_id,
-      raw,
-    };
+    return this.readSession(raw, body.llm_id);
   }
   async createSession(request: AIChatRequest = {}): Promise<WebChatSession> {
     const operation = this.client.operation(request, this.model(request));
@@ -111,8 +132,7 @@ class SessionWebChatProvider implements WebChatAIProvider {
     message: Record<string, unknown>,
     http?: AIHTTPRequestOptions,
   ): Promise<unknown> {
-    if (!sessionId)
-      throw new Error("WebChat appendMessage requires sessionId.");
+    this.validateSessionId(sessionId);
     const request: AIChatRequest = { ...(http ? { http } : {}) };
     const operation = this.client.operation(request, this.model(request));
     try {
@@ -120,6 +140,56 @@ class SessionWebChatProvider implements WebChatAIProvider {
         this.sessionKey(request, sessionId),
         operation,
         () => this.append(sessionId, message, operation),
+      );
+    } catch (error) {
+      throw toProviderRequestError(this.provider, operation.model, error);
+    }
+  }
+  async getSession(
+    sessionId: string,
+    http?: AIHTTPRequestOptions,
+  ): Promise<WebChatSession> {
+    this.validateSessionId(sessionId);
+    const request: AIChatRequest = { ...(http ? { http } : {}) };
+    const operation = this.client.operation(request, this.model(request));
+    try {
+      const raw = await operation.send(
+        {
+          path:
+            this.options.webChat?.getSessionPath ??
+            "/action-webchat/get/sessions/{sessionId}",
+          method: "GET",
+        },
+        { sessionId },
+      );
+      return this.readSession(raw, operation.model, sessionId);
+    } catch (error) {
+      throw toProviderRequestError(this.provider, operation.model, error);
+    }
+  }
+  async updateSession(
+    sessionId: string,
+    patch: Record<string, unknown>,
+    http?: AIHTTPRequestOptions,
+  ): Promise<unknown> {
+    this.validateSessionId(sessionId);
+    const request: AIChatRequest = { ...(http ? { http } : {}) };
+    const operation = this.client.operation(request, this.model(request));
+    try {
+      return await this.serialized(
+        this.sessionKey(request, sessionId),
+        operation,
+        () =>
+          operation.send(
+            {
+              path:
+                this.options.webChat?.updateSessionPath ??
+                "/action-webchat/put/sessions/{sessionId}",
+              method: "POST",
+              payload: patch,
+            },
+            { sessionId },
+          ),
       );
     } catch (error) {
       throw toProviderRequestError(this.provider, operation.model, error);
@@ -170,7 +240,7 @@ class SessionWebChatProvider implements WebChatAIProvider {
       !["append", "request", "poll", "custom"].includes(completion.mode)
     )
       throw new Error(
-        "WebChat chat requires an explicit completion mode. The HAR only confirmed session creation/message registration; configure request/poll/custom for the real answer API, or append for an API returning inline assistant replies.",
+        "WebChat chat requires an explicit completion mode. Session/message APIs store history; configure request/poll/custom for the real answer API, or append for an API returning inline assistant replies.",
       );
     if (completion.mode === "poll") {
       if (
@@ -264,11 +334,48 @@ class SessionWebChatProvider implements WebChatAIProvider {
             throw new Error(
               "WebChat extractAssistant must return text as a string.",
             );
+          const assistantMessage = {
+            role: "assistant" as const,
+            content: answer.text,
+          };
+          let assistantRegistration: unknown;
+          if (settings.persistAssistantReply) {
+            try {
+              assistantRegistration = await this.append(
+                session.sessionId,
+                assistantMessage,
+                operation,
+              );
+            } catch (error) {
+              const failure = toProviderRequestError(
+                this.provider,
+                session.model,
+                error,
+              );
+              throw new AIProviderRequestError({
+                provider: this.provider,
+                model: session.model,
+                code: "webchat_assistant_persistence_failed",
+                ...(failure.status !== undefined
+                  ? { status: failure.status }
+                  : {}),
+                ...(failure.requestId !== undefined
+                  ? { requestId: failure.requestId }
+                  : {}),
+                responseBody: {
+                  session_id: session.sessionId,
+                  assistant_message: assistantMessage,
+                  persistence_error: failure.responseBody,
+                },
+                originalError: failure,
+              });
+            }
+          }
           return {
             provider: this.provider,
             model: session.model,
             outputText: answer.text,
-            message: { role: "assistant" as const, content: answer.text },
+            message: assistantMessage,
             finishReason: answer.finishReason ?? "stop",
             ...(answer.usage ? { usage: answer.usage } : {}),
             raw: {
@@ -276,6 +383,7 @@ class SessionWebChatProvider implements WebChatAIProvider {
               session: session.raw,
               postedResponses,
               completion: raw,
+              ...(settings.persistAssistantReply ? { assistantRegistration } : {}),
               buffered: true,
             },
           };

@@ -50,6 +50,8 @@ export type WebChatProviderSettings = {
   maxSessionCount?: number;
   apiKeyHeader?: string;
   createSessionPath?: string;
+  getSessionPath?: string;
+  updateSessionPath?: string;
   appendMessagePath?: string;
   sessionIdPath?: WebChatValuePath;
   responsePath?: WebChatValuePath;
@@ -58,6 +60,8 @@ export type WebChatProviderSettings = {
     equals: string | number | boolean | null;
   };
   completion?: WebChatCompletion;
+  /** Save externally generated assistant text in history. Default: false. */
+  persistAssistantReply?: boolean;
   extractAssistant?(
     raw: unknown,
     context: WebChatCompletionContext,
@@ -75,6 +79,15 @@ export type WebChatAIProviderOptions = Omit<AIProviderOptions, "apiType"> & {
 export interface WebChatAIProvider extends AIProvider {
   apiType: "webchat";
   createSession(request?: AIChatRequest): Promise<WebChatSession>;
+  getSession(
+    sessionId: string,
+    http?: AIHTTPRequestOptions,
+  ): Promise<WebChatSession>;
+  updateSession(
+    sessionId: string,
+    patch: Record<string, unknown>,
+    http?: AIHTTPRequestOptions,
+  ): Promise<unknown>;
   appendMessage(
     sessionId: string,
     message: Record<string, unknown>,

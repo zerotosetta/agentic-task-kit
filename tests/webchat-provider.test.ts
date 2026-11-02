@@ -30,6 +30,7 @@ type Request = {
 type Session = {
   session_id: string;
   llm_id: string;
+  client_state?: string;
   message_history: Array<{ message_id: number; contents: string }>;
 };
 const cleanups: Array<() => Promise<void>> = [];
@@ -110,6 +111,18 @@ async function server(
       });
       return;
     }
+    const read = /^\/action-webchat\/get\/sessions\/([^/]+)$/u.exec(captured.path);
+    if (read && captured.method === "GET") {
+      json(response, get(decodeURIComponent(read[1]!)));
+      return;
+    }
+    const update = /^\/action-webchat\/put\/sessions\/([^/]+)$/u.exec(captured.path);
+    if (update && captured.method === "POST") {
+      const session = get(decodeURIComponent(update[1]!));
+      Object.assign(session, captured.body);
+      json(response, session);
+      return;
+    }
     const answer = /^\/mock\/answers\/([^/?]+)/u.exec(captured.path);
     if (answer && captured.method === "GET") {
       const id = decodeURIComponent(answer[1]!);
@@ -160,7 +173,7 @@ const poll: WebChatProviderSettings = {
 };
 
 describe("HAR WebChat protocol", () => {
-  it("exposes the two observed operations without requiring a guessed answer endpoint", async () => {
+  it("creates sessions and registers messages without requiring a guessed answer endpoint", async () => {
     const mock = await server();
     const provider = mock.provider();
     const session = await provider.createSession({
@@ -740,8 +753,13 @@ describe("WebChat configuration and runtime integration", () => {
     const provider = createWebChatAIProvider({
       baseURL: mock.baseURL,
       apiKey: "private-mock-key",
+      defaultHeaders: {
+        Authorization: "Bearer private-mock-bearer",
+        "BXCode-User-API-Key": "private-mock-bxcode",
+        Cookie: "session=private-mock-cookie",
+      },
       defaultModel: "mock-model",
-      httpDebugLogging: { stream: log, redactHeaders: [] },
+      httpDebugLogging: { stream: log, includeHeaders: true, redactHeaders: [] },
       webChat: {
         apiKeyHeader: "X-WebChat-Secret",
         assistantUUID: "mock-assistant",
@@ -754,6 +772,10 @@ describe("WebChat configuration and runtime integration", () => {
     );
     expect(output).toContain("[REDACTED]");
     expect(output).not.toContain("private-mock-key");
+    expect(output).not.toContain("private-mock-bearer");
+    expect(output).not.toContain("private-mock-bxcode");
+    expect(output).not.toContain("private-mock-cookie");
+    expect(mock.requests[0]?.headers.authorization).toBe("Bearer private-mock-bearer");
   });
 });
 
@@ -794,5 +816,182 @@ describe("WebChat native session overrides", () => {
       model: "request-native-model",
     });
     expect(result.model).toBe("request-native-model");
+  });
+});
+
+describe("WebChat session persistence lifecycle", () => {
+  it("reads history and posts opaque session state using the observed HTTP methods", async () => {
+    const mock = await server();
+    const provider = mock.provider();
+    const { sessionId } = await provider.createSession();
+    await provider.appendMessage(sessionId, message());
+    const clientState = JSON.stringify({
+      session_total_tokens: 321,
+      session_llm_call_count: 1,
+      assistant_id: "{sessionId}",
+    });
+    await provider.updateSession(sessionId, {
+      client_state: clientState,
+      vendor_extra: { untouched: true },
+    });
+    const session = await provider.getSession(sessionId);
+    expect(session).toMatchObject({
+      sessionId,
+      model: "mock-model",
+      raw: { client_state: clientState, vendor_extra: { untouched: true } },
+    });
+    expect((session.raw as Session).message_history).toHaveLength(1);
+    expect(mock.requests.slice(-2).map(({ method, path, body }) => ({ method, path, body }))).toEqual([
+      { method: "POST", path: `/action-webchat/put/sessions/${sessionId}`, body: {
+        client_state: clientState, vendor_extra: { untouched: true },
+      } },
+      { method: "GET", path: `/action-webchat/get/sessions/${sessionId}`, body: {} },
+    ]);
+  });
+
+  it("supports custom read/update paths, encoded IDs and HTTP overrides", async () => {
+    const id = "session/with space";
+    const mock = await server({ intercept(request, response) {
+      if (request.path.startsWith("/custom/")) {
+        json(response, { data: { id }, llm_id: "stored-model" });
+        return true;
+      }
+      return false;
+    } });
+    const provider = createWebChatAIProvider({
+      baseURL: "http://127.0.0.1:1",
+      webChat: {
+        getSessionPath: "/custom/read/{sessionId}",
+        updateSessionPath: "/custom/update/{sessionId}",
+        sessionIdPath: ["data", "id"],
+      },
+    });
+    const http = { baseURL: mock.baseURL, headers: { Authorization: "Bearer mock" } };
+    expect(await provider.getSession(id, http)).toMatchObject({ sessionId: id, model: "stored-model" });
+    await provider.updateSession(id, { client_state: "{}" }, http);
+    expect(mock.requests.map(({ method, path }) => [method, path])).toEqual([
+      ["GET", "/custom/read/session%2Fwith%20space"],
+      ["POST", "/custom/update/session%2Fwith%20space"],
+    ]);
+    expect(mock.requests.every(({ headers }) => headers.authorization === "Bearer mock")).toBe(true);
+  });
+
+  it.each([{}, { session_id: "different-session" }])("rejects missing or mismatched session IDs: %j", async (raw) => {
+    const mock = await server({ intercept(_request, response) {
+      json(response, raw);
+      return true;
+    } });
+    await expect(mock.provider().getSession("expected")).rejects.toThrow(/session/i);
+  });
+
+  it("validates IDs and persistence settings before making requests", async () => {
+    const mock = await server();
+    await expect(mock.provider().getSession("")).rejects.toThrow("non-empty string");
+    await expect(mock.provider().updateSession("", {})).rejects.toThrow("non-empty string");
+    expect(() => mock.provider({ persistAssistantReply: "false" as unknown as boolean })).toThrow("boolean");
+    expect(mock.requests).toHaveLength(0);
+  });
+
+  it("stores an externally generated answer once, then reuses its history", async () => {
+    const mock = await server();
+    let generations = 0;
+    const provider = mock.provider({
+      persistAssistantReply: true,
+      completion: { mode: "custom", async complete(context) {
+        generations++;
+        return { role: "assistant", content: `external:${String(context.lastMessage.content)}` };
+      } },
+    });
+    const first = await provider.chat({ payload: message("one") });
+    expect(first.raw).toMatchObject({
+      session_id: "session-1",
+      assistantRegistration: { message_history: expect.any(Array) },
+    });
+    const second = await provider.chat({ payload: message("two"), webChat: { sessionId: "session-1" } });
+    expect(second.outputText).toBe("external:two");
+    const session = await provider.getSession("session-1");
+    expect((session.raw as Session).message_history.map(({ contents }) => JSON.parse(contents))).toEqual([
+      message("one"), { role: "assistant", content: "external:one" },
+      message("two"), { role: "assistant", content: "external:two" },
+    ]);
+    expect(generations).toBe(2);
+    expect(mock.sessions.size).toBe(1);
+  });
+
+  it("keeps automatic assistant persistence disabled for servers that already save replies", async () => {
+    const mock = await server({ inline: true });
+    const provider = mock.provider({ completion: { mode: "append" } });
+    const result = await provider.chat({ payload: message() });
+    expect(result.raw).not.toHaveProperty("assistantRegistration");
+    expect(mock.get("session-1").message_history).toHaveLength(2);
+    expect(mock.requests).toHaveLength(2);
+  });
+
+  it("preserves the generated answer after a failed save without repeating generation or POSTs", async () => {
+    let failed = false;
+    const mock = await server({ intercept(request, response) {
+      if (request.body.role === "assistant" && !failed) {
+        failed = true;
+        json(response, { error: { code: "save_failed", message: "ambiguous write" } }, 503);
+        return true;
+      }
+      return false;
+    } });
+    let generations = 0;
+    const provider = mock.provider({
+      sessionId: "shared", persistAssistantReply: true,
+      completion: { mode: "custom", async complete() {
+        generations++;
+        return { role: "assistant", content: "recoverable answer" };
+      } },
+    });
+    await expect(provider.chat({ payload: message(), http: { maxRetries: 5 } })).rejects.toMatchObject({
+      code: "webchat_assistant_persistence_failed", status: 503, requestId: "mock-request",
+      responseBody: {
+        session_id: "shared", assistant_message: { role: "assistant", content: "recoverable answer" },
+        persistence_error: { error: { code: "save_failed" } },
+      },
+      originalError: expect.any(AIProviderRequestError),
+    });
+    expect(generations).toBe(1);
+    expect(mock.requests).toHaveLength(2);
+    // A recovery write and later call can proceed after the failed chat releases its queue.
+    await provider.updateSession("shared", { client_state: "{}" });
+    await provider.chat({ payload: message("next") });
+    expect(generations).toBe(2);
+    expect(mock.requests.filter(({ body }) => body.role === "assistant")).toHaveLength(2);
+  });
+
+  it("holds session updates behind generation and assistant registration", async () => {
+    const mock = await server();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const provider = mock.provider({
+      sessionId: "shared", persistAssistantReply: true,
+      completion: { mode: "custom", async complete() {
+        await gate;
+        return { role: "assistant", content: "answer" };
+      } },
+    });
+    const chat = provider.chat({ payload: message() });
+    await expect.poll(() => mock.requests.length).toBe(1);
+    const update = provider.updateSession("shared", { client_state: "{}" });
+    // Read operations remain available while a completion is in flight.
+    expect((await provider.getSession("shared")).raw).toMatchObject({ message_history: [{ contents: JSON.stringify(message()) }] });
+    expect(mock.requests.some(({ path }) => path.includes("/put/"))).toBe(false);
+    release();
+    await Promise.all([chat, update]);
+    expect(mock.requests.slice(-2).map(({ body }) => body)).toEqual([
+      { role: "assistant", content: "answer" }, { client_state: "{}" },
+    ]);
+  });
+
+  it("never retries a session patch after an ambiguous server failure", async () => {
+    const mock = await server({ intercept(_request, response) {
+      json(response, { error: { message: "write may have happened" } }, 503);
+      return true;
+    } });
+    await expect(mock.provider().updateSession("shared", { client_state: "{}" }, { maxRetries: 5 })).rejects.toMatchObject({ status: 503 });
+    expect(mock.requests).toHaveLength(1);
   });
 });

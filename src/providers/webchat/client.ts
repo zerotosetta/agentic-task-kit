@@ -171,6 +171,13 @@ export class WebChatClient {
             redactHeaders: [
               ...new Set([
                 ...debug.redactHeaders,
+                "authorization",
+                "proxy-authorization",
+                "cookie",
+                "set-cookie",
+                "api-key",
+                "x-api-key",
+                "x-goog-api-key",
                 keyHeader.toLowerCase(),
                 "bxcode-user-api-key",
               ]),
