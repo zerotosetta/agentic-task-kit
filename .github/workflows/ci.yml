@@ -33,6 +33,10 @@ jobs:
         working-directory: sample-project
       - run: npm run test:helpers
         working-directory: sample-project
+      - run: npm run test:leflect
+        working-directory: sample-project
+      - run: npm audit
+        working-directory: sample-project
       - run: npm run typecheck
         working-directory: sample-project
       - run: npm run start:sub:line

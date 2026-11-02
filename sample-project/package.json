@@ -17,7 +17,8 @@
     "start:java-jsp:failure": "npm run build:library && cross-env SAMPLE_FORCE_VALIDATION_FAIL=1 CYCLE_RENDER_MODE=line tsx ./src/main-java-jsp.ts",
     "start:sub": "npm run build:library && tsx ./src/main-sub-workflow.ts",
     "start:sub:line": "npm run build:library && cross-env CYCLE_LIVE=0 tsx ./src/main-sub-workflow.ts",
-    "start:sub:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts"
+    "start:sub:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-sub-workflow.ts",
+    "test:leflect": "node --test ./tests/leflect-dependencies.test.mjs"
   },
   "dependencies": {
     "@leflect-java/cli": "0.1.7",
@@ -32,5 +33,14 @@
   },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "overrides": {
+    "@leflect-java/cli": {
+      "adm-zip": "0.6.1"
+    },
+    "@leflect-java/parser-tld": {
+      "adm-zip": "0.6.1",
+      "fast-xml-parser": "5.11.2"
+    }
   }
 }

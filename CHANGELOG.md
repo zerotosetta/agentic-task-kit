@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Replace compiler API tooling with the public TypeScript CLI and esbuild's resolved import graph.
 - Remove obsolete abort-signal fallback and duplicate OpenAIChat wrapper implementations while preserving public aliases.
 - Upgrade sample dependencies and remove deprecated TypeScript configuration and internal CLI paths.
+- Override vulnerable Leflect ZIP/XML dependencies with patched releases and verify TLD/JAR loading in consumer CI.
 
 ## v0.1.8 - 2026-04-08
 
