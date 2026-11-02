@@ -1,4 +1,8 @@
 export type {
+  AIAPIType,
+  AIProviderOptions,
+  AIProviderFileConfig,
+  AIProviderConfigFileOptions,
   AIChatContentPart,
   AIChatMessageContent,
   AIChatMessageRole,
@@ -24,8 +28,17 @@ export type {
   OpenAICompatibleChatProviderFileConfig,
   OpenAICompatibleChatProviderOptions,
 } from "./types/ai.js";
-export type { Artifact, ArtifactStore, RunArtifact } from "./types/artifacts.js";
-export type { ErrorSourceLocation, TaskResult, TaskStatus, WorkflowInput } from "./types/core.js";
+export type {
+  Artifact,
+  ArtifactStore,
+  RunArtifact,
+} from "./types/artifacts.js";
+export type {
+  ErrorSourceLocation,
+  TaskResult,
+  TaskStatus,
+  WorkflowInput,
+} from "./types/core.js";
 export type {
   AfterStepInput,
   BeforeStepInput,

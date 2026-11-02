@@ -30,7 +30,8 @@ export type AISession = {
   fork: (opts?: { label?: string }) => AISession;
 };
 
-export type AIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type AIReasoningEffort =
+  "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type AIHTTPHeaders = Record<string, string>;
 
@@ -53,7 +54,11 @@ export type AIHTTPDebugLoggingOptions = {
 
 export type AIChatRequest = {
   model?: string;
-  messages: AISessionMessage[];
+  messages?: AISessionMessage[];
+  /** Native API fields, forwarded without a field allowlist. */
+  payload?: Record<string, unknown>;
+  /** Replace skips common-message conversion and provider defaultPayload. */
+  payloadMode?: "merge" | "replace";
   temperature?: number;
   maxCompletionTokens?: number;
   reasoningEffort?: AIReasoningEffort;
@@ -107,12 +112,14 @@ export interface AIChatStream extends AsyncIterable<AIChatStreamChunk> {
 
 export interface AIProvider {
   provider: string;
+  apiType?: AIAPIType;
   defaultChatModel?: string | undefined;
   chat(request: AIChatRequest): Promise<AIChatResponse>;
   chatStream(request: AIChatRequest): Promise<AIChatStream>;
 }
 
 export type OpenAICompatibleChatProviderOptions = {
+  apiType?: AIAPIType;
   providerName?: string;
   apiKey?: string;
   baseURL?: string;
@@ -121,6 +128,7 @@ export type OpenAICompatibleChatProviderOptions = {
   defaultHeaders?: AIHTTPHeaders;
   httpDebugLogging?: boolean | AIHTTPDebugLoggingOptions;
   defaultModel?: string;
+  defaultPayload?: Record<string, unknown>;
   timeoutMs?: number;
   maxRetries?: number;
   defaultTemperature?: number;
@@ -128,12 +136,24 @@ export type OpenAICompatibleChatProviderOptions = {
   defaultReasoningEffort?: AIReasoningEffort;
 };
 
-export type OpenAICompatibleChatProviderFileConfig = OpenAICompatibleChatProviderOptions & {
-  apiKeyEnv?: string;
-  baseURLEnv?: string;
-  organizationEnv?: string;
-  projectEnv?: string;
-};
+export type AIAPIType =
+  | "openai-chat-completions"
+  | "openai-responses"
+  | "anthropic-messages"
+  | "gemini-generate-content";
+
+export type AIProviderOptions = OpenAICompatibleChatProviderOptions;
+export type AIProviderFileConfig = OpenAICompatibleChatProviderFileConfig;
+export type AIProviderConfigFileOptions =
+  OpenAICompatibleChatProviderConfigFileOptions;
+
+export type OpenAICompatibleChatProviderFileConfig =
+  OpenAICompatibleChatProviderOptions & {
+    apiKeyEnv?: string;
+    baseURLEnv?: string;
+    organizationEnv?: string;
+    projectEnv?: string;
+  };
 
 export type OpenAICompatibleChatProviderConfigFileOptions = {
   configPath?: string;
@@ -142,6 +162,8 @@ export type OpenAICompatibleChatProviderConfigFileOptions = {
 
 export type OpenAIChatProviderOptions = OpenAICompatibleChatProviderOptions;
 
-export type OpenAIChatProviderFileConfig = OpenAICompatibleChatProviderFileConfig;
+export type OpenAIChatProviderFileConfig =
+  OpenAICompatibleChatProviderFileConfig;
 
-export type OpenAIChatProviderConfigFileOptions = OpenAICompatibleChatProviderConfigFileOptions;
+export type OpenAIChatProviderConfigFileOptions =
+  OpenAICompatibleChatProviderConfigFileOptions;

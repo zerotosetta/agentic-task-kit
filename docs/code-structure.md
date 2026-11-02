@@ -7,6 +7,8 @@ The package keeps its existing `index.ts` exports and top-level module paths. Th
 | `src/runtime/` | Registry/run orchestration, task hooks, validation, cancellation, AI monitoring, input bootstrap, result snapshots |
 | `src/memory/` | Store adapters, retrieval/context assembly, scoring, record preparation, lifecycle, memory events |
 | `src/providers/openai/` | Provider options, HTTP tracing, message mapping, error mapping, streaming queue and client |
+| `src/providers/native/` | Responses/Anthropic/Gemini payload mapping, JSON/SSE normalization, fetch transport and lifecycle |
+| `src/providers/payload.ts` | Shared native payload precedence and model resolution |
 | `src/rendering/` | Renderer state, workflow/branch state, formatting, timelines and event reduction |
 | `src/rendering/ink/` | Keyboard input, layout, flowcharts, React screen and terminal controller |
 | `src/types/` | Domain types; cross-domain references use type-only imports |

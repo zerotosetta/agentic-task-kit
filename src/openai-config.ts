@@ -7,7 +7,7 @@ import type {
   OpenAIChatProviderFileConfig,
   OpenAICompatibleChatProviderConfigFileOptions,
   OpenAICompatibleChatProviderFileConfig,
-  OpenAICompatibleChatProviderOptions
+  OpenAICompatibleChatProviderOptions,
 } from "./types.js";
 
 type OpenAICompatibleConfigDocument = OpenAICompatibleChatProviderFileConfig & {
@@ -29,14 +29,16 @@ function resolveConfigPath(configPath?: string): string | null {
   return isAbsolute(rawPath) ? rawPath : resolve(process.cwd(), rawPath);
 }
 
-function parseConfigDocument(configPath: string): OpenAICompatibleConfigDocument {
+function parseConfigDocument(
+  configPath: string,
+): OpenAICompatibleConfigDocument {
   const content = readFileSync(configPath, "utf8");
   return JSON.parse(content) as OpenAICompatibleConfigDocument;
 }
 
 function resolveOptionValue(
   directValue: string | undefined,
-  envName: string | undefined
+  envName: string | undefined,
 ): string | undefined {
   if (directValue !== undefined) {
     return directValue;
@@ -50,13 +52,20 @@ function resolveOptionValue(
 }
 
 function toProviderOptions(
-  config: OpenAICompatibleChatProviderFileConfig
+  config: OpenAICompatibleChatProviderFileConfig,
 ): OpenAICompatibleChatProviderOptions {
   const options: OpenAICompatibleChatProviderOptions = {};
 
+  if (config.apiType !== undefined) options.apiType = config.apiType;
+  if (config.defaultPayload !== undefined)
+    options.defaultPayload = { ...config.defaultPayload };
+
   const apiKey = resolveOptionValue(config.apiKey, config.apiKeyEnv);
   const baseURL = resolveOptionValue(config.baseURL, config.baseURLEnv);
-  const organization = resolveOptionValue(config.organization, config.organizationEnv);
+  const organization = resolveOptionValue(
+    config.organization,
+    config.organizationEnv,
+  );
   const project = resolveOptionValue(config.project, config.projectEnv);
 
   if (config.providerName !== undefined) {
@@ -115,13 +124,13 @@ function toProviderOptions(
 }
 
 function pickProviderConfig(
-  parsed: OpenAICompatibleConfigDocument
+  parsed: OpenAICompatibleConfigDocument,
 ): OpenAICompatibleChatProviderFileConfig {
   return parsed.openaiCompatible ?? parsed.openai ?? parsed;
 }
 
 export function loadOpenAICompatibleChatProviderOptionsFromConfigFile(
-  options: OpenAICompatibleChatProviderConfigFileOptions = {}
+  options: OpenAICompatibleChatProviderConfigFileOptions = {},
 ): OpenAICompatibleChatProviderOptions {
   const resolvedPath = resolveConfigPath(options.configPath);
   let fileOptions: OpenAICompatibleChatProviderOptions = {};
@@ -143,34 +152,38 @@ export function loadOpenAICompatibleChatProviderOptionsFromConfigFile(
       ? {
           httpDebugLogging: {
             ...fileOptions.httpDebugLogging,
-            ...options.overrides.httpDebugLogging
-          }
+            ...options.overrides.httpDebugLogging,
+          },
         }
       : {}),
     ...(options.overrides?.defaultHeaders
       ? {
           defaultHeaders: {
             ...(fileOptions.defaultHeaders ?? {}),
-            ...options.overrides.defaultHeaders
-          }
+            ...options.overrides.defaultHeaders,
+          },
         }
-      : {})
+      : {}),
   };
 }
 
-export function resolveOpenAICompatibleChatConfigPath(configPath?: string): string | null {
+export function resolveOpenAICompatibleChatConfigPath(
+  configPath?: string,
+): string | null {
   return resolveConfigPath(configPath);
 }
 
 export function createOpenAICompatibleChatProviderFromConfigFile(
-  options?: OpenAICompatibleChatProviderConfigFileOptions
+  options?: OpenAICompatibleChatProviderConfigFileOptions,
 ): AIProvider {
   return createOpenAICompatibleChatProvider(
-    loadOpenAICompatibleChatProviderOptionsFromConfigFile(options)
+    loadOpenAICompatibleChatProviderOptionsFromConfigFile(options),
   );
 }
 
 export {
+  createOpenAICompatibleChatProviderFromConfigFile as createAIProviderFromConfigFile,
+  loadOpenAICompatibleChatProviderOptionsFromConfigFile as loadAIProviderOptionsFromConfigFile,
   loadOpenAICompatibleChatProviderOptionsFromConfigFile as loadOpenAIChatProviderOptionsFromConfigFile,
   resolveOpenAICompatibleChatConfigPath as resolveOpenAIChatConfigPath,
   createOpenAICompatibleChatProviderFromConfigFile as createOpenAIChatProviderFromConfigFile,
