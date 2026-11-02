@@ -58,7 +58,7 @@ export function resolveHTTPDebugLogging(
       details?.includeRequestBody ??
       parseOptionalBoolean(process.env.OPENAI_HTTP_DEBUG_BODY) ??
       false,
-    redactHeaders: details?.redactHeaders ?? ["authorization", "api-key", "x-api-key", "x-goog-api-key"],
+    redactHeaders: details?.redactHeaders ?? ["authorization", "api-key", "x-api-key", "x-goog-api-key", "bxcode-user-api-key"],
   };
 }
 

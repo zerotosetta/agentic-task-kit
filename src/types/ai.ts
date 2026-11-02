@@ -1,3 +1,8 @@
+import type {
+  WebChatProviderSettings,
+  WebChatRequestOptions,
+} from "./webchat.js";
+
 export type AIChatMessageRole = "developer" | "system" | "user" | "assistant";
 
 export type AITextContentPart = {
@@ -65,6 +70,7 @@ export type AIChatRequest = {
   metadata?: Record<string, string>;
   promptCacheKey?: string;
   http?: AIHTTPRequestOptions;
+  webChat?: WebChatRequestOptions;
 };
 
 export type AIChatUsage = {
@@ -134,13 +140,15 @@ export type OpenAICompatibleChatProviderOptions = {
   defaultTemperature?: number;
   defaultMaxCompletionTokens?: number;
   defaultReasoningEffort?: AIReasoningEffort;
+  webChat?: WebChatProviderSettings;
 };
 
 export type AIAPIType =
   | "openai-chat-completions"
   | "openai-responses"
   | "anthropic-messages"
-  | "gemini-generate-content";
+  | "gemini-generate-content"
+  | "webchat";
 
 export type AIProviderOptions = OpenAICompatibleChatProviderOptions;
 export type AIProviderFileConfig = OpenAICompatibleChatProviderFileConfig;

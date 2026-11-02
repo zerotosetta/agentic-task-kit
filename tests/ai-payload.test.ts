@@ -21,7 +21,7 @@ import {
   type WorkflowContext,
 } from "../src/index.js";
 
-const apiTypes: AIAPIType[] = [
+const apiTypes: Exclude<AIAPIType, "webchat">[] = [
   "openai-chat-completions",
   "openai-responses",
   "anthropic-messages",
