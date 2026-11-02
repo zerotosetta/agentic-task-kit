@@ -25,8 +25,11 @@ export function createAbortAwareAIProvider(
 ): AIProvider {
   return {
     provider: provider.provider,
+    ...(provider.apiType ? { apiType: provider.apiType } : {}),
     defaultChatModel: provider.defaultChatModel,
-    chat: (request) => provider.chat(withWorkflowAbortSignal(request, workflowSignal)),
-    chatStream: (request) => provider.chatStream(withWorkflowAbortSignal(request, workflowSignal)),
+    chat: (request) =>
+      provider.chat(withWorkflowAbortSignal(request, workflowSignal)),
+    chatStream: (request) =>
+      provider.chatStream(withWorkflowAbortSignal(request, workflowSignal)),
   };
 }

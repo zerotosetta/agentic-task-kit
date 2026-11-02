@@ -1,5 +1,7 @@
 # OpenAI-compatible Chat API
 
+모델별 API 형식 선택 및 필드 제약 없는 `payload` / `payloadMode: "replace"` 사용은 [다양한 AI API](./ai-api.md) 를 참고한다. `createAIProvider()` 에서 Chat Completions, Responses, Anthropic Messages, Gemini generateContent 를 선택할 수 있다.
+
 `Cycle` 는 `createOpenAICompatibleChatProvider()` 로 OpenAI Chat Completions 스펙 기반 AI 호출을 연결할 수 있다.
 기본 OpenAI API 뿐 아니라 같은 스펙을 따르는 다른 model API 로도 `baseURL` 과 `defaultHeaders` 만 바꿔 쉽게 전환할 수 있다.
 설정은 별도 JSON 파일 경로로도 읽을 수 있다.

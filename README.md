@@ -26,6 +26,7 @@ npm install agentic-task-kit
 - lifecycle `Create -> Update -> Merge -> Compress -> Expire`
 - `ctx.ai.chat()` / `ctx.ai.chatStream()` provider interface
 - OpenAI-compatible Chat Completions adapter
+- Responses / Anthropic Messages / Gemini generateContent API 선택 및 [원본 payload 전달](./docs/ai-api.md)
 - OpenAI-compatible content-part chat input
 - separate OpenAI-compatible config file loading
 - compact CLI renderer

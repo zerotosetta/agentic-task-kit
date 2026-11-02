@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { mergePayload } from "../payload.js";
 import type {
   AIChatContentPart,
   AIChatRequest,
@@ -48,7 +49,9 @@ function toOpenAIUserContentPart(
           : undefined;
 
   if (!imageURL?.url) {
-    throw new Error("AI chat image_url content part requires `imageUrl` or `image_url.url`.");
+    throw new Error(
+      "AI chat image_url content part requires `imageUrl` or `image_url.url`.",
+    );
   }
 
   return {
@@ -57,7 +60,9 @@ function toOpenAIUserContentPart(
   };
 }
 
-function toOpenAIMessage(message: AISessionMessage): OpenAI.ChatCompletionMessageParam {
+function toOpenAIMessage(
+  message: AISessionMessage,
+): OpenAI.ChatCompletionMessageParam {
   if (message.role === "assistant") {
     const content =
       typeof message.content === "string"
@@ -208,7 +213,9 @@ export function toUsage(usage: unknown): AIChatUsage | undefined {
 
   return {
     ...(promptTokens !== undefined ? { inputTokens: promptTokens } : {}),
-    ...(completionTokens !== undefined ? { outputTokens: completionTokens } : {}),
+    ...(completionTokens !== undefined
+      ? { outputTokens: completionTokens }
+      : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
     ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
   };
@@ -253,18 +260,22 @@ export function buildNonStreamingBody(
     defaultTemperature: number | undefined;
     defaultMaxCompletionTokens: number | undefined;
     defaultReasoningEffort:
-      | OpenAICompatibleChatProviderOptions["defaultReasoningEffort"]
-      | undefined;
+      OpenAICompatibleChatProviderOptions["defaultReasoningEffort"] | undefined;
+    defaultPayload?: Record<string, unknown> | undefined;
   },
 ): OpenAI.ChatCompletionCreateParamsNonStreaming {
-  const resolvedTemperature = request.temperature ?? defaults.defaultTemperature;
+  const resolvedTemperature =
+    request.temperature ?? defaults.defaultTemperature;
   const resolvedMaxCompletionTokens =
     request.maxCompletionTokens ?? defaults.defaultMaxCompletionTokens;
-  const resolvedReasoningEffort = request.reasoningEffort ?? defaults.defaultReasoningEffort;
+  const resolvedReasoningEffort =
+    request.reasoningEffort ?? defaults.defaultReasoningEffort;
 
-  const body: OpenAI.ChatCompletionCreateParamsNonStreaming = {
+  const body: Record<string, unknown> = {
     model,
-    messages: request.messages.map(toOpenAIMessage),
+    ...(request.messages !== undefined && request.payloadMode !== "replace"
+      ? { messages: request.messages.map(toOpenAIMessage) }
+      : {}),
   };
 
   if (resolvedTemperature !== undefined) {
@@ -287,7 +298,10 @@ export function buildNonStreamingBody(
     body.prompt_cache_key = request.promptCacheKey;
   }
 
-  return body;
+  const merged = mergePayload(request, defaults.defaultPayload, body);
+  // The operation owns the transport mode; all other native fields pass through.
+  if ("stream" in merged) merged.stream = false;
+  return merged as unknown as OpenAI.ChatCompletionCreateParamsNonStreaming;
 }
 
 export function buildStreamingBody(
@@ -297,8 +311,8 @@ export function buildStreamingBody(
     defaultTemperature: number | undefined;
     defaultMaxCompletionTokens: number | undefined;
     defaultReasoningEffort:
-      | OpenAICompatibleChatProviderOptions["defaultReasoningEffort"]
-      | undefined;
+      OpenAICompatibleChatProviderOptions["defaultReasoningEffort"] | undefined;
+    defaultPayload?: Record<string, unknown> | undefined;
   },
 ): OpenAI.ChatCompletionCreateParamsStreaming {
   return {

@@ -98,7 +98,7 @@ describe("AI provider integration", () => {
     expect(result.frame.status).toBe("success");
     expect(result.frame.completedTasks).toEqual(["generateSummary", "publishSummary"]);
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.messages[0]?.role).toBe("developer");
+    expect(requests[0]?.messages?.[0]?.role).toBe("developer");
 
     const summary = await memoryEngine.get(
       `memory.workflow.summary.${result.frame.workflowId}.generateSummary`,

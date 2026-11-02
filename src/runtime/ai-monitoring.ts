@@ -5,6 +5,7 @@ import type {
   AIProvider,
   WorkflowContext,
 } from "../types.js";
+import { toSerializableValue } from "../workflow-input.js";
 
 function clipMonitoringText(value: string, maxLength = 160): string {
   if (value.length <= maxLength) {
@@ -34,7 +35,7 @@ function stringifyMessageContent(content: unknown): string {
           return String((entry as { text?: unknown }).text ?? "");
         }
 
-        return JSON.stringify(entry);
+        return JSON.stringify(toSerializableValue(entry));
       })
       .join("\n");
   }
@@ -50,26 +51,43 @@ function buildPromptMonitoringMeta(
   provider: AIProvider,
   request: AIChatRequest,
 ): Record<string, unknown> {
-  const fullPrompt = request.messages
-    .map((message) => `${message.role}: ${stringifyMessageContent(message.content)}`)
-    .join("\n");
-  const userPrompt = request.messages
-    .filter((message) => message.role === "user")
-    .map((message) => stringifyMessageContent(message.content))
-    .join("\n");
+  const messages = request.messages ?? [];
+  const nativePrompt = request.payload
+    ? JSON.stringify(toSerializableValue(request.payload))
+    : "";
+  const fullPrompt =
+    nativePrompt ||
+    messages
+      .map(
+        (message) =>
+          `${message.role}: ${stringifyMessageContent(message.content)}`,
+      )
+      .join("\n");
+  const userPrompt =
+    nativePrompt ||
+    messages
+      .filter((message) => message.role === "user")
+      .map((message) => stringifyMessageContent(message.content))
+      .join("\n");
   const prompt = userPrompt || fullPrompt;
 
   return {
     provider: provider.provider,
-    model: request.model ?? provider.defaultChatModel ?? "unconfigured",
-    messageCount: request.messages.length,
+    model:
+      typeof request.payload?.model === "string"
+        ? request.payload.model
+        : (request.model ?? provider.defaultChatModel ?? "unconfigured"),
+    ...(provider.apiType ? { apiType: provider.apiType } : {}),
+    messageCount: messages.length,
     promptLength: prompt.length,
     fullPromptLength: fullPrompt.length,
     prompt: clipMonitoringText(prompt),
   };
 }
 
-function buildResponseMonitoringMeta(response: AIChatResponse): Record<string, unknown> {
+function buildResponseMonitoringMeta(
+  response: AIChatResponse,
+): Record<string, unknown> {
   return {
     provider: response.provider,
     model: response.model,
@@ -102,6 +120,7 @@ export function createObservedAIProvider(
 ): AIProvider {
   return {
     provider: provider.provider,
+    ...(provider.apiType ? { apiType: provider.apiType } : {}),
     defaultChatModel: provider.defaultChatModel,
     async chat(request) {
       const requestMeta = buildPromptMonitoringMeta(provider, request);

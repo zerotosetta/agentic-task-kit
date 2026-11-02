@@ -1,10 +1,15 @@
 export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
 export {
+  createAIProvider,
+  createAIProviderFromConfigFile,
+  loadAIProviderOptionsFromConfigFile,
+} from "./ai-provider.js";
+export {
   AIProviderRequestError,
   WorkflowCancellationError,
   isWorkflowCancellationError,
-  toWorkflowCancellationError
+  toWorkflowCancellationError,
 } from "./errors.js";
 export { ExecutionBroadcaster } from "./events.js";
 export { createExecutionHistoryTracker } from "./history.js";
@@ -16,9 +21,12 @@ export {
   InMemoryGraphStore,
   InMemoryKVStore,
   InMemoryMemoryEngine,
-  InMemoryVectorStore
+  InMemoryVectorStore,
 } from "./memory.js";
-export { InMemoryArtifactStore, createObservedArtifactStore } from "./artifacts.js";
+export {
+  InMemoryArtifactStore,
+  createObservedArtifactStore,
+} from "./artifacts.js";
 export { getGlobalWorkflowRuntimeController } from "./runtime-control.js";
 export {
   createOpenAICompatibleChatProviderFromConfigFile,
@@ -26,11 +34,11 @@ export {
   resolveOpenAICompatibleChatConfigPath,
   createOpenAIChatProviderFromConfigFile,
   loadOpenAIChatProviderOptionsFromConfigFile,
-  resolveOpenAIChatConfigPath
+  resolveOpenAIChatConfigPath,
 } from "./openai-config.js";
 export {
   createOpenAICompatibleChatProvider,
-  createOpenAIChatProvider
+  createOpenAIChatProvider,
 } from "./openai-provider.js";
 export { Task } from "./task.js";
 export { createCLIRenderer } from "./renderer.js";
@@ -40,12 +48,16 @@ export {
   requireWorkflowInputValue,
   toSerializableValue,
   workflowInputToObject,
-  workflowInputToPrettyJson
+  workflowInputToPrettyJson,
 } from "./workflow-input.js";
 export { ReportWorkflow } from "./examples/report-workflow.js";
 export { OpenAISummaryWorkflow } from "./examples/openai-summary-workflow.js";
 export { OpenAIStreamingSummaryWorkflow } from "./examples/openai-streaming-summary-workflow.js";
 export type {
+  AIAPIType,
+  AIProviderOptions,
+  AIProviderFileConfig,
+  AIProviderConfigFileOptions,
   AIChatRequest,
   AIChatResponse,
   AIChatStream,
@@ -134,5 +146,5 @@ export type {
   WorkflowCancellation,
   WorkflowRuntimeController,
   WorkflowInput,
-  WorkflowDefinition
+  WorkflowDefinition,
 } from "./types.js";

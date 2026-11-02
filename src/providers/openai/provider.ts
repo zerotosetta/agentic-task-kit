@@ -9,7 +9,10 @@ import type {
   AIProvider,
   OpenAICompatibleChatProviderOptions,
 } from "../../types.js";
-import { toProviderRequestError, writeProviderErrorDebugLog } from "./errors.js";
+import {
+  toProviderRequestError,
+  writeProviderErrorDebugLog,
+} from "./errors.js";
 import type { ResolvedAIHTTPDebugLoggingOptions } from "./http.js";
 import {
   buildNonStreamingBody,
@@ -20,18 +23,22 @@ import {
 } from "./messages.js";
 import { createClientOptions, resolveOptions } from "./options.js";
 import { AsyncQueue } from "./queue.js";
+import { resolveRequestModel } from "../payload.js";
+import { createNativeAIProvider } from "../native/provider.js";
 
 class OpenAICompatibleChatProvider implements AIProvider {
+  readonly apiType = "openai-chat-completions" as const;
   readonly provider: string;
   readonly defaultChatModel: string | undefined;
+  private readonly defaultPayload: Record<string, unknown> | undefined;
 
   private readonly client: OpenAI;
-  private readonly httpDebugLogging: ResolvedAIHTTPDebugLoggingOptions | undefined;
+  private readonly httpDebugLogging:
+    ResolvedAIHTTPDebugLoggingOptions | undefined;
   private readonly defaultTemperature: number | undefined;
   private readonly defaultMaxCompletionTokens: number | undefined;
   private readonly defaultReasoningEffort:
-    | OpenAICompatibleChatProviderOptions["defaultReasoningEffort"]
-    | undefined;
+    OpenAICompatibleChatProviderOptions["defaultReasoningEffort"] | undefined;
 
   constructor(options: OpenAICompatibleChatProviderOptions = {}) {
     const resolved = resolveOptions(options);
@@ -39,13 +46,18 @@ class OpenAICompatibleChatProvider implements AIProvider {
     this.client = new OpenAI(createClientOptions(resolved));
     this.httpDebugLogging = resolved.httpDebugLogging;
     this.defaultChatModel = resolved.defaultModel;
+    this.defaultPayload = options.defaultPayload;
     this.defaultTemperature = resolved.defaultTemperature;
     this.defaultMaxCompletionTokens = resolved.defaultMaxCompletionTokens;
     this.defaultReasoningEffort = resolved.defaultReasoningEffort;
   }
 
   async chat(request: AIChatRequest): Promise<AIChatResponse> {
-    const model = request.model ?? this.defaultChatModel;
+    const model = resolveRequestModel(
+      request,
+      this.defaultChatModel,
+      this.defaultPayload,
+    );
     if (!model) {
       throw new Error(
         "No OpenAI-compatible chat model configured. Set `defaultModel` in `createOpenAICompatibleChatProvider()` or pass `model` to `ctx.ai.chat()`.",
@@ -54,17 +66,30 @@ class OpenAICompatibleChatProvider implements AIProvider {
 
     const completion = await (async () => {
       try {
-        return await this.client.chat.completions.create(
+        const client = request.http?.baseURL
+          ? this.client.withOptions({ baseURL: request.http.baseURL })
+          : this.client;
+        return await client.chat.completions.create(
           buildNonStreamingBody(model, request, {
             defaultTemperature: this.defaultTemperature,
             defaultMaxCompletionTokens: this.defaultMaxCompletionTokens,
             defaultReasoningEffort: this.defaultReasoningEffort,
+            defaultPayload: this.defaultPayload,
           }),
           buildRequestOptions(request),
         );
       } catch (error) {
-        const providerError = toProviderRequestError(this.provider, model, error);
-        writeProviderErrorDebugLog(this.httpDebugLogging, this.provider, model, providerError);
+        const providerError = toProviderRequestError(
+          this.provider,
+          model,
+          error,
+        );
+        writeProviderErrorDebugLog(
+          this.httpDebugLogging,
+          this.provider,
+          model,
+          providerError,
+        );
         throw providerError;
       }
     })();
@@ -88,7 +113,11 @@ class OpenAICompatibleChatProvider implements AIProvider {
   }
 
   async chatStream(request: AIChatRequest): Promise<AIChatStream> {
-    const model = request.model ?? this.defaultChatModel;
+    const model = resolveRequestModel(
+      request,
+      this.defaultChatModel,
+      this.defaultPayload,
+    );
     if (!model) {
       throw new Error(
         "No OpenAI-compatible chat model configured. Set `defaultModel` in `createOpenAICompatibleChatProvider()` or pass `model` to `ctx.ai.chatStream()`.",
@@ -100,7 +129,10 @@ class OpenAICompatibleChatProvider implements AIProvider {
       ...request,
       http: {
         ...request.http,
-        signal: combineAbortSignals([request.http?.signal, cancellation.signal])!,
+        signal: combineAbortSignals([
+          request.http?.signal,
+          cancellation.signal,
+        ])!,
       },
     };
     const queue = new AsyncQueue<AIChatStreamChunk>(() => cancellation.abort());
@@ -112,11 +144,15 @@ class OpenAICompatibleChatProvider implements AIProvider {
 
     const finalResponse = (async () => {
       try {
-        const stream = await this.client.chat.completions.create(
+        const client = request.http?.baseURL
+          ? this.client.withOptions({ baseURL: request.http.baseURL })
+          : this.client;
+        const stream = await client.chat.completions.create(
           buildStreamingBody(model, request, {
             defaultTemperature: this.defaultTemperature,
             defaultMaxCompletionTokens: this.defaultMaxCompletionTokens,
             defaultReasoningEffort: this.defaultReasoningEffort,
+            defaultPayload: this.defaultPayload,
           }),
           buildRequestOptions(streamRequest),
         );
@@ -129,7 +165,10 @@ class OpenAICompatibleChatProvider implements AIProvider {
           const deltaText = extractText(firstChoice?.delta?.content);
           outputText += deltaText;
 
-          if (firstChoice?.finish_reason !== undefined && firstChoice.finish_reason !== null) {
+          if (
+            firstChoice?.finish_reason !== undefined &&
+            firstChoice.finish_reason !== null
+          ) {
             finishReason = firstChoice.finish_reason;
           }
 
@@ -174,8 +213,17 @@ class OpenAICompatibleChatProvider implements AIProvider {
         queue.close();
         return response;
       } catch (error) {
-        const providerError = toProviderRequestError(this.provider, model, error);
-        writeProviderErrorDebugLog(this.httpDebugLogging, this.provider, model, providerError);
+        const providerError = toProviderRequestError(
+          this.provider,
+          model,
+          error,
+        );
+        writeProviderErrorDebugLog(
+          this.httpDebugLogging,
+          this.provider,
+          model,
+          providerError,
+        );
         queue.fail(providerError);
         throw providerError;
       }
@@ -195,6 +243,12 @@ class OpenAICompatibleChatProvider implements AIProvider {
 export function createOpenAICompatibleChatProvider(
   options?: OpenAICompatibleChatProviderOptions,
 ): AIProvider {
+  if (
+    options?.apiType !== undefined &&
+    options.apiType !== "openai-chat-completions"
+  ) {
+    return createNativeAIProvider(options);
+  }
   return new OpenAICompatibleChatProvider(options);
 }
 
