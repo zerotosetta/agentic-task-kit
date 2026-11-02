@@ -2,6 +2,7 @@ import { createInterface, type Interface as ReadLineInterface } from "node:readl
 
 import { render, Text, useInput } from "ink";
 import React, { useEffect, useState, type ReactElement } from "react";
+import { exitAfterTerminalCleanup } from "./process-exit.js";
 
 import {
   inkColorForLevel,
@@ -693,7 +694,7 @@ export class InkCLIRenderer implements CLIRenderer {
   }): void {
     if (!this.started) {
       if (args.exitProcess) {
-        process.exit(args.exitCode ?? 0);
+        exitAfterTerminalCleanup(args.exitCode ?? 0);
       }
       return;
     }
@@ -724,7 +725,7 @@ export class InkCLIRenderer implements CLIRenderer {
     }
 
     if (args.exitProcess) {
-      process.exit(args.exitCode ?? 0);
+      exitAfterTerminalCleanup(args.exitCode ?? 0);
     }
   }
 

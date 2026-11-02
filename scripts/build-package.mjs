@@ -1,6 +1,6 @@
 import { builtinModules } from "node:module";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import { build } from "esbuild";
 
@@ -30,7 +30,8 @@ for (const declarationFile of declarationFiles) {
   }
 
   const shimPath = declarationFile.replace(/\.d\.ts$/u, ".js");
-  const relativeIndexPath = relative(dirname(shimPath), join(distDir, "index.js"));
+  const relativeIndexPath = relative(dirname(shimPath), join(distDir, "index.js"))
+    .split(sep).join("/");
   const importPath = relativeIndexPath.startsWith(".")
     ? relativeIndexPath
     : `./${relativeIndexPath}`;

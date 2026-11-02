@@ -3,6 +3,8 @@
 Cycle foundation MVP 를 구현하는 저장소입니다.
 이 패키지는 AX Workflow 를 구현할 수 있는 Node.js + TypeScript 라이브러리의 최소 실행 가능 범위를 제공합니다.
 
+Windows / PowerShell 설치와 실행 명령은 [local setup](./docs/local-setup.md#windows--powershell) 을 참고하세요. sample 의 npm scripts 는 Windows 와 POSIX shell 을 지원합니다.
+
 ## Install
 ```bash
 npm install agentic-task-kit

@@ -41,6 +41,7 @@
     "build": "npm run clean && npm run build:types && npm run build:bundle",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:package": "node ./scripts/verify-package.mjs",
     "test:watch": "vitest",
     "example": "tsx ./scripts/run-example.ts",
     "example:consumer": "tsx ./scripts/run-consumer-example.ts",

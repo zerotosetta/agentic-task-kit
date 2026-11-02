@@ -1,4 +1,5 @@
 import { isAbsolute, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ErrorSourceLocation } from "./types.js";
 
@@ -13,7 +14,7 @@ type ErrorStackFrame = {
 function normalizeStackPath(file: string): string {
   if (file.startsWith("file://")) {
     try {
-      return decodeURIComponent(new URL(file).pathname);
+      return fileURLToPath(file);
     } catch {
       return file.slice("file://".length);
     }
@@ -56,7 +57,7 @@ function parseStackFrame(line: string): ErrorStackFrame | undefined {
 }
 
 function isInternalFrame(frame: ErrorStackFrame): boolean {
-  const file = frame.file;
+  const file = frame.file.replaceAll("\\", "/");
   return (
     file.startsWith("node:") ||
     file.startsWith("internal/") ||

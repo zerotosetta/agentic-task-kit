@@ -2,11 +2,17 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCLIRenderer } from "../src/index.js";
 import { InkCLIRenderer } from "../src/ink-renderer.js";
 import type { ExecutionEvent, TaskLogEvent } from "../src/index.js";
+
+// These tests verify the renderer's cancellation/exit policy. Native Windows
+// handle cleanup is exercised in child processes by process-exit.test.ts.
+vi.mock("../src/process-exit.js", () => ({
+  exitAfterTerminalCleanup: (code: number) => process.exit(code)
+}));
 
 describe("CLI renderer", () => {
   let stream: PassThrough;

@@ -4,6 +4,41 @@
 - Node.js 20+
 - npm 10+
 
+## Windows / PowerShell
+Windows 에서도 Node.js 20+ 와 npm 을 사용한다. PowerShell 실행 정책 때문에 `npm.ps1` 이 차단되는 환경은 `npm.cmd` 로 실행하면 된다. 실행 정책 변경이나 WSL 은 필요하지 않다.
+
+```powershell
+npm.cmd ci
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build:all-in-one
+npm.cmd run test:package
+npm.cmd run test:package -- .npm-package/dist
+```
+
+PowerShell 에서는 `NAME=value command` 대신 `$env:NAME = "value"` 를 사용한다. 아래 Bash 예제의 환경변수도 같은 방식으로 설정한다.
+
+```powershell
+$env:CYCLE_RENDER_MODE = "ink"
+npm.cmd run example
+Remove-Item Env:CYCLE_RENDER_MODE
+
+Set-Location sample-project
+npm.cmd ci
+npm.cmd run start:sub:line
+npm.cmd run start:sub:ink
+
+$env:GEMINI_API_KEY = "your_key_here"
+npm.cmd run start:java-jsp:line
+Remove-Item Env:GEMINI_API_KEY
+```
+
+sample 의 `start:*` npm scripts 는 `cross-env` 를 사용하므로 Windows 기본 `cmd.exe` 와 POSIX shell 양쪽에서 실행할 수 있다. 키가 필요한 예제는 해당 provider 설정을 먼저 준비한다.
+
+Ink 는 interactive TTY 에서 동작한다. `q` 는 실행 중인 workflow 를 취소한 뒤 code 0, 실행 중 `Ctrl+C` 는 취소 후 code 130, idle `Ctrl+C` 는 code 0 으로 종료한다. Windows 는 terminal 복구 후 `process.exitCode` 와 stdin pause/unref 로 비동기 정리를 마치고 종료하며, 호스트가 별도로 시작한 server/timer 의 정리는 호스트가 담당한다. non-TTY 에서는 `jsonl` 로 fallback 한다.
+
+검증 환경과 상세 결과는 PM 레포의 `dialog/2026-11-02.md` 에 기록한다.
+
 ## Install
 ```bash
 npm install
@@ -46,7 +81,7 @@ TTY 가 아니면 `jsonl` 로 fallback 된다.
 ```bash
 npm run clean
 npm run build
-node -e \"import('./dist/index.js')\"
+node -e "import('./dist/index.js')"
 ```
 
 `npm run build` 는 `dist/index.js` 단일 ESM 번들과 `dist/index.d.ts` 타입 선언을 생성한다.
