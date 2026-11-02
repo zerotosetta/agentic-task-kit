@@ -26,6 +26,7 @@ import { AsyncQueue } from "./queue.js";
 import { resolveRequestModel } from "../payload.js";
 import { createNativeAIProvider } from "../native/provider.js";
 import { createWebChatAIProvider } from "../webchat/provider.js";
+import { createCommandAIProvider } from "../command/provider.js";
 
 class OpenAICompatibleChatProvider implements AIProvider {
   readonly apiType = "openai-chat-completions" as const;
@@ -244,6 +245,10 @@ class OpenAICompatibleChatProvider implements AIProvider {
 export function createOpenAICompatibleChatProvider(
   options?: OpenAICompatibleChatProviderOptions,
 ): AIProvider {
+  if (options?.apiType === "command") {
+    if (!options.command) throw new Error("Command provider requires command settings.");
+    return createCommandAIProvider({ ...options, apiType: "command", command: options.command });
+  }
   if (options?.apiType === "webchat")
     return createWebChatAIProvider({ ...options, apiType: "webchat" });
   if (

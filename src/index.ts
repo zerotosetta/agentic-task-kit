@@ -1,6 +1,14 @@
 export { createCycle } from "./cycle.js";
 export { createUnavailableAIProvider } from "./ai.js";
 export { createWebChatAIProvider } from "./webchat-provider.js";
+export { createCommandAIProvider } from "./command-provider.js";
+export type {
+  CommandAIProviderOptions,
+  CommandAssistantResult,
+  CommandExecutionResult,
+  CommandProviderSettings,
+  CommandRequestOptions,
+} from "./types/command.js";
 export type {
   WebChatAIProvider,
   WebChatAIProviderOptions,

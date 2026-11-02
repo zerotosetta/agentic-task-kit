@@ -28,6 +28,7 @@ npm install agentic-task-kit
 - OpenAI-compatible Chat Completions adapter
 - Responses / Anthropic Messages / Gemini generateContent API 선택 및 [원본 payload 전달](./docs/ai-api.md)
 - [세션 기반 WebChat provider](./docs/webchat-api.md): 세션 생성·조회·수정, 외부 생성 답변의 이력 저장, 설정 가능한 완료 API·콜백
+- [명령 실행 provider](./docs/command-api.md): `bxca -p "[MESSAGE]"` 같은 CLI를 AIProvider로 연결
 - OpenAI-compatible content-part chat input
 - separate OpenAI-compatible config file loading
 - compact CLI renderer

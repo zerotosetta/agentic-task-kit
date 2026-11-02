@@ -12,7 +12,7 @@ import { mergePayload } from "../payload.js";
 
 export type NativeAPIType = Exclude<
   AIAPIType,
-  "openai-chat-completions" | "webchat"
+  "openai-chat-completions" | "webchat" | "command"
 >;
 export function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)

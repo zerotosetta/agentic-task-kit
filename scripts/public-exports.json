@@ -15,6 +15,7 @@
   "createAIProvider",
   "createAIProviderFromConfigFile",
   "createCLIRenderer",
+  "createCommandAIProvider",
   "createCycle",
   "createExecutionHistoryTracker",
   "createObservedArtifactStore",
