@@ -1,11 +1,11 @@
 # Local Setup
 
 ## Requirements
-- Node.js 20+
+- Node.js 22.12+
 - npm 10+
 
 ## Windows / PowerShell
-Windows 에서도 Node.js 20+ 와 npm 을 사용한다. PowerShell 실행 정책 때문에 `npm.ps1` 이 차단되는 환경은 `npm.cmd` 로 실행하면 된다. 실행 정책 변경이나 WSL 은 필요하지 않다.
+Windows 에서도 Node.js 22.12+ 와 npm 을 사용한다. PowerShell 실행 정책 때문에 `npm.ps1` 이 차단되는 환경은 `npm.cmd` 로 실행하면 된다. 실행 정책 변경이나 WSL 은 필요하지 않다.
 
 ```powershell
 npm.cmd ci

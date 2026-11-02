@@ -5,7 +5,7 @@
 
 ## 요구사항
 - 코드 확장 지점과 runtime 안전성 계약은 [code-structure.md](./code-structure.md) 를 참고한다.
-- Node.js 20+
+- Node.js 22.12+
 - npm 10+
 
 ## 설치
