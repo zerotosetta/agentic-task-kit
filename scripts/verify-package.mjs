@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(projectRoot, process.argv[2] ?? "dist");
+const expectedExports = JSON.parse(
+  await readFile(resolve(projectRoot, "scripts/public-exports.json"), "utf8"),
+);
 let count = 0;
 
 async function verifyDirectory(directory) {
@@ -14,6 +17,11 @@ async function verifyDirectory(directory) {
       await verifyDirectory(file);
     } else if (entry.isFile() && entry.name.endsWith(".js")) {
       const module = await import(pathToFileURL(file).href);
+      assert.deepEqual(
+        Object.keys(module).sort(),
+        expectedExports,
+        `Public exports changed in ${file}`,
+      );
       assert.equal(typeof module.createCycle, "function", `Missing public exports in ${file}`);
       count += 1;
     }

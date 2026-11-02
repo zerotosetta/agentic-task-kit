@@ -11,8 +11,9 @@ import {
   type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowInput,
-  type WorkflowMemory
+  type WorkflowMemory,
 } from "agentic-task-kit";
+import { resolveRendererOptions } from "./sample-runtime.js";
 
 type ReleaseInput = {
   product: string;
@@ -20,24 +21,6 @@ type ReleaseInput = {
   services: string[];
   environment: string;
 };
-
-function resolveRendererOptions(): CLIRendererOptions {
-  const requestedMode = process.env.CYCLE_RENDER_MODE as CLIRendererOptions["mode"];
-  const requestedLogLevel = process.env.CYCLE_LOG_LEVEL as CLIRendererOptions["logLevel"];
-
-  if (requestedMode) {
-    return {
-      enabled: process.env.CYCLE_LIVE !== "0",
-      mode: requestedMode,
-      ...(requestedLogLevel ? { logLevel: requestedLogLevel } : {})
-    };
-  }
-
-  return {
-    enabled: process.env.CYCLE_LIVE !== "0",
-    ...(requestedLogLevel ? { logLevel: requestedLogLevel } : {})
-  };
-}
 
 function requireReleaseInput(input: WorkflowInput): ReleaseInput {
   const object = Object.fromEntries(input.entries()) as Partial<ReleaseInput>;
@@ -68,13 +51,13 @@ class PrepareReleaseTask extends Task {
     const input = requireReleaseInput(ctx.input);
     ctx.log.info("Preparing parent workflow release plan", {
       product: input.product,
-      services: input.services.length
+      services: input.services.length,
     });
 
     const summary = [
       `${input.product} rollout objective: ${input.objective}.`,
       `Target environment: ${input.environment}.`,
-      `Services: ${input.services.join(", ")}.`
+      `Services: ${input.services.join(", ")}.`,
     ].join(" ");
 
     await ctx.memory.write({
@@ -85,7 +68,7 @@ class PrepareReleaseTask extends Task {
         workflowId: ctx.workflowId,
         currentStep: this.name,
         history: [],
-        contextSummary: summary
+        contextSummary: summary,
       } satisfies WorkflowMemory,
       description: "Parent release workflow summary",
       keywords: ["release", "parent", "summary"],
@@ -94,14 +77,14 @@ class PrepareReleaseTask extends Task {
       runId: ctx.runId,
       sourceTask: this.name,
       phase: this.memoryPhase,
-      taskType: this.memoryTaskType
+      taskType: this.memoryTaskType,
     });
 
     return {
       status: "success",
       output: {
-        summary
-      }
+        summary,
+      },
     };
   }
 }
@@ -114,7 +97,7 @@ class AnalyzeServicesTask extends Task {
   async run(ctx: WorkflowContext): Promise<TaskResult> {
     const input = requireReleaseInput(ctx.input);
     ctx.log.info("Launching child workflow branch", {
-      branchId: "branch.service-analysis"
+      branchId: "branch.service-analysis",
     });
 
     const child = await ctx.runSubWorkflow(
@@ -122,12 +105,12 @@ class AnalyzeServicesTask extends Task {
       createWorkflowInput({
         product: input.product,
         services: input.services,
-        environment: input.environment
+        environment: input.environment,
       }),
       {
         branchId: "branch.service-analysis",
-        summary: "Analyze service rollout branches"
-      }
+        summary: "Analyze service rollout branches",
+      },
     );
 
     return {
@@ -137,14 +120,14 @@ class AnalyzeServicesTask extends Task {
             output: {
               childWorkflowId: child.frame.workflowId,
               childArtifacts: child.artifacts.artifacts.map((artifact) => artifact.name),
-              childCompletedTasks: child.frame.completedTasks
-            }
+              childCompletedTasks: child.frame.completedTasks,
+            },
           }
         : {
             error: {
-              message: child.frame.errors[child.frame.errors.length - 1] ?? "Child workflow failed"
-            }
-          })
+              message: child.frame.errors[child.frame.errors.length - 1] ?? "Child workflow failed",
+            },
+          }),
     };
   }
 }
@@ -166,18 +149,18 @@ class PublishReleaseTask extends Task {
           `- Product: ${input.product}`,
           `- Objective: ${input.objective}`,
           `- Environment: ${input.environment}`,
-          `- Retrieved Context: ${ctx.memoryContext?.assembledContext ?? "none"}`
-        ].join("\n")
-      )
+          `- Retrieved Context: ${ctx.memoryContext?.assembledContext ?? "none"}`,
+        ].join("\n"),
+      ),
     });
 
     ctx.log.success("Published release rollout summary", {
-      artifactId: artifact.artifactId
+      artifactId: artifact.artifactId,
     });
 
     return {
       status: "success",
-      output: artifact
+      output: artifact,
     };
   }
 }
@@ -195,7 +178,7 @@ class ServiceScanTask extends Task {
     };
 
     ctx.log.info("Scanning child workflow services", {
-      serviceCount: input.services.length
+      serviceCount: input.services.length,
     });
 
     await ctx.memory.write({
@@ -206,7 +189,7 @@ class ServiceScanTask extends Task {
         workflowId: ctx.workflowId,
         currentStep: this.name,
         history: [],
-        contextSummary: `${input.product} services scanned for ${input.environment}: ${input.services.join(", ")}`
+        contextSummary: `${input.product} services scanned for ${input.environment}: ${input.services.join(", ")}`,
       } satisfies WorkflowMemory,
       description: "Child workflow service scan summary",
       keywords: ["child", "services", "scan"],
@@ -215,14 +198,14 @@ class ServiceScanTask extends Task {
       runId: ctx.runId,
       sourceTask: this.name,
       phase: this.memoryPhase,
-      taskType: this.memoryTaskType
+      taskType: this.memoryTaskType,
     });
 
     return {
       status: "success",
       output: {
-        services: input.services
-      }
+        services: input.services,
+      },
     };
   }
 }
@@ -239,32 +222,28 @@ class GenerateChecklistTask extends Task {
       environment: string;
     };
 
-    const checklist = input.services.map((service, index) =>
-      `${index + 1}. Validate ${service} deployment in ${input.environment}`
+    const checklist = input.services.map(
+      (service, index) => `${index + 1}. Validate ${service} deployment in ${input.environment}`,
     );
 
     const artifact = await ctx.artifacts.create({
       name: "service-analysis-checklist.md",
       mimeType: "text/markdown",
       bytes: new TextEncoder().encode(
-        [
-          `# ${input.product} Service Analysis Checklist`,
-          "",
-          ...checklist
-        ].join("\n")
-      )
+        [`# ${input.product} Service Analysis Checklist`, "", ...checklist].join("\n"),
+      ),
     });
 
     ctx.log.success("Generated child workflow checklist", {
-      artifactId: artifact.artifactId
+      artifactId: artifact.artifactId,
     });
 
     return {
       status: "success",
       output: {
         checklist,
-        artifactId: artifact.artifactId
-      }
+        artifactId: artifact.artifactId,
+      },
     };
   }
 }
@@ -276,22 +255,22 @@ const ParentWorkflow: WorkflowDefinition = {
   tasks: {
     prepareRelease: new PrepareReleaseTask(),
     analyzeServices: new AnalyzeServicesTask(),
-    publishRelease: new PublishReleaseTask()
+    publishRelease: new PublishReleaseTask(),
   },
   transitions: {
     prepareRelease: {
       success: "analyzeServices",
-      fail: "end"
+      fail: "end",
     },
     analyzeServices: {
       success: "publishRelease",
-      fail: "end"
+      fail: "end",
     },
     publishRelease: {
       success: "end",
-      fail: "end"
-    }
-  }
+      fail: "end",
+    },
+  },
 };
 
 const ChildWorkflow: WorkflowDefinition = {
@@ -300,24 +279,25 @@ const ChildWorkflow: WorkflowDefinition = {
   end: "end",
   tasks: {
     scanServices: new ServiceScanTask(),
-    generateChecklist: new GenerateChecklistTask()
+    generateChecklist: new GenerateChecklistTask(),
   },
   transitions: {
     scanServices: {
       success: "generateChecklist",
-      fail: "end"
+      fail: "end",
     },
     generateChecklist: {
       success: "end",
-      fail: "end"
-    }
-  }
+      fail: "end",
+    },
+  },
 };
 
 function printResult(result: CycleRunResult): void {
-  const artifactNames = result.artifacts.artifacts.map((artifact) => artifact.name).join(", ") || "none";
+  const artifactNames =
+    result.artifacts.artifacts.map((artifact) => artifact.name).join(", ") || "none";
   process.stdout.write(
-    `Sub workflow example finished with status=${result.frame.status} completedTasks=${result.frame.completedTasks.join(",")} artifacts=${artifactNames} memoryRecords=${result.memory.records.length}\n`
+    `Sub workflow example finished with status=${result.frame.status} completedTasks=${result.frame.completedTasks.join(",")} artifacts=${artifactNames} memoryRecords=${result.memory.records.length}\n`,
   );
 }
 
@@ -326,7 +306,7 @@ const renderer = createCLIRenderer(rendererOptions);
 const cycle = createCycle({
   memoryEngine: new InMemoryMemoryEngine(),
   artifactStore: new InMemoryArtifactStore(),
-  observers: [renderer]
+  observers: [renderer],
 });
 
 cycle.register("release-orchestration", ParentWorkflow);
@@ -338,8 +318,8 @@ const result = await cycle.run(
     product: "Cycle",
     objective: "Validate the new sub workflow branch renderer in a release-ready scenario.",
     services: ["api-gateway", "workflow-engine", "reporting-worker"],
-    environment: "staging"
-  })
+    environment: "staging",
+  }),
 );
 
 if (isPersistentInkRenderer(rendererOptions)) {

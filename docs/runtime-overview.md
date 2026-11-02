@@ -1,5 +1,7 @@
 # Runtime Overview
 
+For module boundaries, validation, async observer cleanup and streaming cancellation guarantees, see [code structure](./code-structure.md).
+
 ## Foundation MVP
 - `createCycle()` creates a registry-backed runtime.
 - `register(key, workflow)` registers a workflow definition.

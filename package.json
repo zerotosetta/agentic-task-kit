@@ -42,6 +42,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:package": "node ./scripts/verify-package.mjs",
+    "test:architecture": "node ./scripts/verify-architecture.mjs",
     "test:watch": "vitest",
     "example": "tsx ./scripts/run-example.ts",
     "example:consumer": "tsx ./scripts/run-consumer-example.ts",

@@ -4,6 +4,7 @@
 이 문서는 `agentic-task-kit` 을 사용하는 개발자가 첫 workflow 를 만들고, memory/AI/renderer 를 연결하고, 배포 가능한 consumer app 을 구성하는 가장 짧은 경로를 정리한다.
 
 ## 요구사항
+- 코드 확장 지점과 runtime 안전성 계약은 [code-structure.md](./code-structure.md) 를 참고한다.
 - Node.js 20+
 - npm 10+
 

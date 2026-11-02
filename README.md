@@ -373,6 +373,7 @@ npm run publish:all-in-one:dry-run
 GitHub Actions 에서는 `.github/workflows/npm-publish.yml` 이 같은 publish 경로를 사용한다. repository secret `NPM_AUTH_TOKEN` 을 등록하면 `workflow_dispatch` 또는 `v*` tag push 로 publish 할 수 있다. manual publish 는 default branch 에서만 허용되고, 기본 `patch` version bump 후 publish 한 다음 release commit 과 `v<version>` tag 를 origin 에 반영한다.
 
 ## 문서
+- [code structure and runtime guarantees](./docs/code-structure.md)
 - [developer guide](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/developer-guide.md)
 - [release guide](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/release-guide.md)
 - [memory guide](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/memory-guide.md)
