@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
@@ -108,7 +108,7 @@ function resolveRequestHeaders(): Record<string, string> | undefined {
 
 function createOutputDirName(inputPath: string): string {
   const timestamp = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
-  const fileName = inputPath.split("/").at(-1) ?? "legacy-workspace";
+  const fileName = basename(inputPath) || "legacy-workspace";
   const uniqueness = `${process.pid}-${randomBytes(2).toString("hex")}`;
   return `${fileName}-${timestamp}-${uniqueness}`;
 }
