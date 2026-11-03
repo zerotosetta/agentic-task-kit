@@ -479,10 +479,11 @@ describe("command provider integration", () => {
   });
 
   it.skipIf(process.platform !== "win32")(
-    "resolves npm Node cmd shims through PATH without shell expansion",
+    "prefers npm Node cmd shims over sibling POSIX shims without shell expansion",
     async () => {
       const mock = await fixture();
       const shim = join(mock.root, "bxca.cmd");
+      await writeFile(join(mock.root, "bxca"), "#!/bin/sh\nexit 99\n");
       await writeFile(
         shim,
         '@ECHO off\r\nSET "_prog=node"\r\n"%_prog%" "%dp0%\\fixture.mjs" %*\r\n',

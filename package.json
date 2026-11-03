@@ -46,6 +46,8 @@
     "test:watch": "vitest",
     "example": "tsx ./scripts/run-example.ts",
     "example:consumer": "tsx ./scripts/run-consumer-example.ts",
+    "example:bxca": "npm --prefix ./sample-project run start:bxca --",
+    "example:bxca:demo": "npm --prefix ./sample-project run start:bxca:demo --",
     "example:openai": "tsx ./scripts/run-openai-example.ts",
     "example:openai:stream": "tsx ./scripts/run-openai-streaming-example.ts",
     "issue:repro:all": "npm --prefix ./issue-repro-lab run repro:all",

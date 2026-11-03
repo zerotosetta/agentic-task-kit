@@ -39,5 +39,7 @@ jobs:
         working-directory: sample-project
       - run: npm run typecheck
         working-directory: sample-project
+      - run: npm run test:bxca
+        working-directory: sample-project
       - run: npm run start:sub:line
         working-directory: sample-project
