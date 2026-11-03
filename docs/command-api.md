@@ -11,7 +11,7 @@ import { createAIProvider, createCycle } from "agentic-task-kit";
 
 const ai = createAIProvider({
   apiType: "command",
-  providerName: "bxca",
+  providerName: "cli",
   timeoutMs: 180_000,
   command: {
     executable: "bxca",
@@ -123,7 +123,7 @@ const ai = createCommandAIProvider({
 ```json
 {
   "apiType": "command",
-  "providerName": "bxca",
+  "providerName": "cli",
   "timeoutMs": 180000,
   "command": {
     "executable": "bxca",

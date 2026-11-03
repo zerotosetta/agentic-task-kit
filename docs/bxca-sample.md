@@ -2,6 +2,8 @@
 
 등록한 `bxca -p "메시지"`를 ATK의 AIProvider로 사용해 요구사항 파일을 분석하고 실행 계획과 검토 보고서를 만든다. 기본 입력은 가상의 **모바일 이체 한도 변경 요구사항**이다. 실제 코드를 수정하지 않고 검토 문서를 생성하는 예제다.
 
+provider 표시명은 실제/데모 모두 `cli`다. `bxca`는 실행 파일 이름이다.
+
 ## 빠른 실행 (Windows / PowerShell)
 
 라이브러리 저장소 `agentic-task-kit`에서 최초 한 번 의존성을 설치한다.
@@ -63,7 +65,7 @@ POSIX shell에서는 `npm.cmd` 대신 `npm`을 사용한다.
 
 ```ts
 const ai = createCommandAIProvider({
-  providerName: "bxca",
+  providerName: "cli",
   timeoutMs: 180_000,
   command: {
     executable: "bxca",

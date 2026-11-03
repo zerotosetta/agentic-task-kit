@@ -1,6 +1,6 @@
 {
   "apiType": "command",
-  "providerName": "bxca",
+  "providerName": "cli",
   "timeoutMs": 180000,
   "command": {
     "executable": "bxca",
