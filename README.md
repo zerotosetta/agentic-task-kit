@@ -29,6 +29,7 @@ npm install agentic-task-kit
 - Responses / Anthropic Messages / Gemini generateContent API 선택 및 [원본 payload 전달](./docs/ai-api.md)
 - [세션 기반 WebChat provider](./docs/webchat-api.md): 세션 생성·조회·수정, 외부 생성 답변의 이력 저장, 설정 가능한 완료 API·콜백
 - [명령 실행 provider](./docs/command-api.md): `bxca -p "[MESSAGE]"` 같은 CLI를 AIProvider로 연결
+- [bxca 활용 샘플](./docs/bxca-sample.md): 요구사항 분석 → 실행 계획 → 검토 보고서, Memory/Artifact/로컬 demo
 - OpenAI-compatible content-part chat input
 - separate OpenAI-compatible config file loading
 - compact CLI renderer
@@ -72,6 +73,12 @@ npm run example
 6. consumer example 실행:
 ```bash
 npm run example:consumer
+```
+
+등록한 bxca 기반 샘플 (`sample-project` 의존성 설치 필요):
+```bash
+npm run example:bxca:demo # 외부 모델 호출 없이 실행
+npm run example:bxca      # bxca -p 인터페이스로 모델 3회 호출
 ```
 7. OpenAI Chat example 실행:
 ```bash

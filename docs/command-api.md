@@ -2,6 +2,8 @@
 
 `apiType: "command"` 또는 `createCommandAIProvider()`로 `bxca -p "[MESSAGE]"` 같은 CLI를 `ctx.ai.chat()`에 연결한다. HTTP API key/baseURL 설정은 필요하지 않다. CLI 자체 인증 설정은 해당 프로그램의 환경을 사용한다.
 
+실행 가능한 [bxca 활용 샘플](./bxca-sample.md)은 요구사항 분석 → 실행 계획 → 검토 보고서를 생성하면서 Memory/Artifact/renderer를 함께 사용한다. `npm run example:bxca:demo`로 외부 모델 호출 없이 확인할 수 있다.
+
 ## bxca 형태로 사용
 
 ```ts

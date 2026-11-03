@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:bxca": "node --import tsx --test ./tests/bxca-sample.test.ts",
     "test:helpers": "node --import tsx --test ./tests/sample-helpers.test.ts",
     "build:library": "npm --prefix .. run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -11,6 +12,10 @@
     "start:line": "npm run build:library && cross-env CYCLE_LIVE=0 tsx ./src/main.ts",
     "start:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main.ts",
     "start:stream": "npm run build:library && tsx ./src/main-stream.ts",
+    "start:bxca": "npm run build:library && tsx ./src/main-bxca.ts",
+    "start:bxca:line": "npm run build:library && cross-env CYCLE_RENDER_MODE=line tsx ./src/main-bxca.ts",
+    "start:bxca:ink": "npm run build:library && cross-env CYCLE_RENDER_MODE=ink tsx ./src/main-bxca.ts",
+    "start:bxca:demo": "npm run build:library && tsx ./src/main-bxca.ts --demo",
     "start:java-jsp": "npm run build:library && tsx ./src/main-java-jsp.ts",
     "start:java-jsp:line": "npm run build:library && cross-env CYCLE_RENDER_MODE=line tsx ./src/main-java-jsp.ts",
     "start:java-jsp:ink": "npm run build:library && cross-env OPENAI_HTTP_DEBUG=1 CYCLE_LOG_LEVEL=debug CYCLE_RENDER_MODE=ink tsx ./src/main-java-jsp.ts",

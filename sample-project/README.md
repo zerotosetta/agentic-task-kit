@@ -3,6 +3,19 @@
 이 샘플 프로젝트는 `agentic-task-kit` 라이브러리를 로컬 file dependency 로 연결해서 사용하는 예제다.
 OpenAI-compatible config file, default headers, non-stream workflow, streaming workflow, sub-workflow, Java/JSP 5단계 Gemini 파이프라인을 각각 별도 진입점으로 보여준다.
 
+등록한 `bxca -p <프롬프트>`를 사용하는 [bxca 활용 샘플](../docs/bxca-sample.md)도 제공한다. 요구사항 파일을 로드하고 분석 → 실행 계획 → 검토 보고서 3단계에서 모델을 호출하며, ATK Memory/Artifact/renderer와 실행 frame을 함께 보여준다.
+
+## bxca 빠른 실행
+
+```powershell
+npm.cmd run start:bxca:demo # API 키/bxca 없이 로컬 command demo
+npm.cmd run start:bxca     # 등록한 bxca로 모델 요청 3회
+npm.cmd run start:bxca:ink # Ink TUI
+npm.cmd run start:bxca -- "C:\work\requirements.md"
+```
+
+기본 입력은 `inputs/transfer-limit-requirements.md`, 설정은 `cycle.bxca.config.json`, 진입점은 `src/main-bxca.ts`다. bxca 자체 인증을 사용하며 ATK용 HTTP API 설정은 필요 없다. 출력은 `generated/bxca-*/`에 문서·메모리·실행 frame으로 저장한다. `BXCA_EXECUTABLE`, `BXCA_MODEL`, `BXCA_TIMEOUT_MS`로 실행 설정을 바꿀 수 있다. 입력과 각 답변은 6000자 이하로 제한한다.
+
 ## 구조
 - 설정 파일: [cycle.config.json](./cycle.config.json)
 - Java/JSP 설정 파일: [cycle.java-jsp.config.json](./cycle.java-jsp.config.json)

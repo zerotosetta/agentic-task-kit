@@ -49,9 +49,10 @@ export async function resolveCommandExecutable(
     .filter((extension) => /^\.(?:exe|com|cmd|bat)$/iu.test(extension));
   let file: string | undefined;
   for (const root of roots) {
+    // npm also writes a POSIX shim without an extension; prefer Windows entries.
     for (const candidate of extname(root)
       ? [root]
-      : [root, ...extensions.map((extension) => root + extension)]) {
+      : [...extensions.map((extension) => root + extension), root]) {
       if (
         await stat(candidate).then(
           (value) => value.isFile(),

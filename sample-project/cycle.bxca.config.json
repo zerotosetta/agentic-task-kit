@@ -1,0 +1,9 @@
+{
+  "apiType": "command",
+  "providerName": "bxca",
+  "timeoutMs": 180000,
+  "command": {
+    "executable": "bxca",
+    "args": ["-p", "{message}"]
+  }
+}
