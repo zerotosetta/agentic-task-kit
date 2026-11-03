@@ -30,7 +30,7 @@ export function createBxcaSampleProvider(options: {
   return createAIProviderFromConfigFile({
     configPath: resolve(bxcaProjectRoot, "cycle.bxca.config.json"),
     overrides: {
-      providerName: options.demo ? "bxca-demo" : "bxca",
+      providerName: "cli",
       timeoutMs,
       ...(model ? { defaultModel: model } : {}),
       command: {
