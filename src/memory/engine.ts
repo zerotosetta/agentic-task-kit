@@ -96,6 +96,7 @@ export class InMemoryMemoryEngine implements MemoryEngine {
       query,
       taskType: input.taskType,
       phase: input.phase,
+      scope: { workflowId: input.workflowId, runId: input.runId, includeGlobal: true },
     });
 
     return {
@@ -124,7 +125,7 @@ export class InMemoryMemoryEngine implements MemoryEngine {
 
     const workflowSummary = await this.buildWorkflowSummaryRecord(input);
     const workflowRecord = await this.write(workflowSummary);
-    const compressedIds = await this.compressRepeatedEvents(input.workflowId);
+    const compressedIds = await this.compressRepeatedEvents(input.workflowId, input.runId);
 
     return {
       taskRecord,
@@ -142,11 +143,13 @@ export class InMemoryMemoryEngine implements MemoryEngine {
   async write(record: MemoryRecordInput): Promise<WriteDisposition> {
     const now = Date.now();
     const existing = record.id ? await this.kvStore.get(record.id) : null;
-    const candidates = await this.kvStore.list({
+    const candidates = (await this.kvStore.list({
       shard: record.shard,
       kind: record.kind,
       archived: false,
-    });
+    })).filter(candidate => candidate.workflowId === record.workflowId && candidate.runId === record.runId);
+    if (existing && (existing.workflowId !== record.workflowId || existing.runId !== record.runId))
+      throw new Error("Memory ID belongs to another execution scope.");
     const normalizedContent = stringifyPayload(record.payload, record.description);
     const similarityMatch = findSimilarityMatch(record, candidates, normalizedContent);
     const similarWriteAction = record.similarWriteAction ?? this.writePolicy.similarWriteAction;
@@ -267,7 +270,12 @@ export class InMemoryMemoryEngine implements MemoryEngine {
           }),
         ),
       )
-    ).flat();
+    ).flat().filter(record => {
+      const scope = request.scope;
+      if (!scope) return true;
+      if (!record.workflowId && !record.runId) return scope.includeGlobal === true;
+      return record.workflowId === scope.workflowId && (!scope.runId || !record.runId || record.runId === scope.runId);
+    });
     const queryEmbedding = await this.embeddingProvider.embed(normalizedQuery);
     const candidateIds = records.map((record) => record.id);
     const semanticHits = await this.vectorStore.search({
@@ -486,7 +494,7 @@ export class InMemoryMemoryEngine implements MemoryEngine {
   }
 
   private async buildWorkflowSummaryRecord(input: AfterStepInput): Promise<MemoryRecordInput> {
-    const recordId = `memory.workflow.summary.${input.workflowId}`;
+    const recordId = `memory.workflow.summary.${input.workflowId}.${input.runId}`;
     const existing = await this.get(recordId);
     const payload = existing?.payload as WorkflowMemory | undefined;
     const summary = summarizeWorkflowStep(input);
@@ -571,18 +579,18 @@ export class InMemoryMemoryEngine implements MemoryEngine {
     }
   }
 
-  private async compressRepeatedEvents(workflowId?: string): Promise<string[]> {
+  private async compressRepeatedEvents(workflowId?: string, runId?: string): Promise<string[]> {
     const rawTaskRecords = (
       await this.kvStore.list({
         shard: "task",
         kind: "raw",
         archived: false,
       })
-    ).filter((record) => (workflowId ? record.workflowId === workflowId : true));
+    ).filter((record) => (!workflowId || record.workflowId === workflowId) && (!runId || record.runId === runId));
 
     const groups = new Map<string, MemoryRecord[]>();
     for (const record of rawTaskRecords) {
-      const key = `${record.workflowId ?? "-"}::${record.description}`;
+      const key = `${record.workflowId ?? "-"}::${record.runId ?? "-"}::${record.description}`;
       const bucket = groups.get(key) ?? [];
       bucket.push(record);
       groups.set(key, bucket);
@@ -599,7 +607,7 @@ export class InMemoryMemoryEngine implements MemoryEngine {
         continue;
       }
 
-      const summaryId = `memory.task.summary.compressed.${hashString(representative.description)}.${representative.workflowId ?? "global"}`;
+      const summaryId = `memory.task.summary.compressed.${hashString(representative.description)}.${representative.workflowId ?? "global"}.${representative.runId ?? "global"}`;
       const summaryInput: MemoryRecordInput = {
         id: summaryId,
         shard: "task",

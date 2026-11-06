@@ -1,4 +1,5 @@
 import type { AIProvider, AISession } from "./ai.js";
+import type { AgentSessionOptions, AgentSessionState } from "./agent.js";
 import type { ArtifactStore, RunArtifact } from "./artifacts.js";
 import type { TaskResult, TaskStatus, WorkflowInput } from "./core.js";
 import type {
@@ -98,6 +99,8 @@ export interface WorkflowContext {
   log: TaskLogger;
   cancellation: WorkflowCancellation;
   now: () => number;
+  /** Runs a multi-turn agent bound to this workflow run, task and cancellation signal. */
+  runAgent<Result>(options: Omit<AgentSessionOptions<Result>, "scope" | "signal">): Promise<{ result: Result; state: AgentSessionState }>;
   runSubWorkflow(
     key: string,
     input: WorkflowInput,

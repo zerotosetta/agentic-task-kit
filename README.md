@@ -395,3 +395,7 @@ GitHub Actions 에서는 `.github/workflows/npm-publish.yml` 이 같은 publish 
 - [OpenAI Chat API](https://github.com/zerotosetta/agentic-task-kit/blob/main/docs/openai-chat-api.md)
 - [sample project](https://github.com/zerotosetta/agentic-task-kit/blob/main/sample-project/README.md)
 - [AXPM example project](https://github.com/zerotosetta/agentic-task-kit-axpm/blob/main/example-project/README.md)
+
+## POC2 agent session patch
+
+The local `0.1.9-poc2.1` build adds `WorkflowContext.runAgent`, the `atk-agent.v1` request/response protocol, bounded evidence exchanges, validation feedback, and checksummed session stores. Memory retrieval and similarity writes respect execution scope. See [the agent session guide](docs/agent-session-guide.md) for API usage and the session/workflow durability boundary.

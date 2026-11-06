@@ -163,6 +163,8 @@ export type RetrieveRequest = {
   phase: MemoryPhase;
   topK?: number;
   maxContextTokens?: number;
+  /** Scoped retrieval is applied before ranking/topK. Unscoped calls retain global retrieval. */
+  scope?: { workflowId: string; runId?: string; includeGlobal?: boolean };
 };
 
 export type RetrieveHit = {

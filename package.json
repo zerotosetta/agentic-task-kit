@@ -1,6 +1,6 @@
 {
   "name": "agentic-task-kit",
-  "version": "0.1.8",
+  "version": "0.1.9-poc2.1",
   "description": "Cycle foundation MVP for implementing AX Workflow in Node.js and TypeScript.",
   "type": "module",
   "repository": {
@@ -25,7 +25,8 @@
   },
   "files": [
     "dist",
-    "LICENSE"
+    "LICENSE",
+    "docs/agent-session-guide.md"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",

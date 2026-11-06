@@ -91,7 +91,7 @@ export function createObservedMemoryEngine(args: ObservedMemoryEngineArgs): Memo
       return args.engine.get(id);
     },
     async retrieve(request) {
-      const result = await args.engine.retrieve(request);
+      const result = await args.engine.retrieve({ ...request, scope: request.scope ?? { workflowId: args.workflowId, runId: args.runId, includeGlobal: true } });
       await emit("retrieval.performed", `retrieve ${request.taskType}`, {
         query: request.query,
         routedShards: result.routedShards,

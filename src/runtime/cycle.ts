@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createUnavailableAIProvider } from "../ai.js";
+import { runAgentSession } from "../agent-session.js";
 import { createObservedArtifactStore, InMemoryArtifactStore } from "../artifacts.js";
 import { extractSourceLocationFromErrorDetails } from "../error-location.js";
 import { toWorkflowCancellationError } from "../errors.js";
@@ -376,6 +377,7 @@ class DefaultCycle implements Cycle {
           log,
           cancellation: args.control,
           now: this.now,
+          runAgent: options => runAgentSession({ ...options, scope: { workflowId, runId, taskId: task.name }, signal: args.control.signal }),
           runSubWorkflow: (key, input, options) =>
             this.runSubWorkflow(
               {

@@ -1,4 +1,7 @@
 export { createCycle } from "./cycle.js";
+export { runAgentSession, parseAgentReply, createAgentReplySchema, resolveAgentSessionLimits, AGENT_PROTOCOL_VERSION, AgentSessionError } from "./agent-session.js";
+export { InMemoryAgentSessionStore, FileAgentSessionStore } from "./agent-session-store.js";
+export type { AgentJSON, AgentScope, AgentDataRequest, AgentDataResponse, AgentReply, AgentTurn, AgentExchange, AgentRound, AgentSessionState, AgentSessionStore, AgentSessionLimits, AgentSessionOptions } from "./types/agent.js";
 export { createUnavailableAIProvider } from "./ai.js";
 export { createWebChatAIProvider } from "./webchat-provider.js";
 export { createCommandAIProvider } from "./command-provider.js";
