@@ -44,6 +44,13 @@ const tools = [
     expectedCheckpointSeq: { type: "integer", minimum: 0 },
     expectedInputSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
   }, ["runId"], { readOnlyHint: false }),
+  tool("workflow_rerun", "Request a workflow-defined step rerun on the current checkpoint with an optional scope and parameters.", {
+    runId: requiredString,
+    expectedCheckpointSeq: { type: "integer", minimum: 0 },
+    stepKey: { ...requiredString, maxLength: 128 },
+    scope: { type: "object" },
+    params: { type: "object" },
+  }, ["runId", "expectedCheckpointSeq", "stepKey"], { readOnlyHint: false, idempotentHint: true }),
   tool("workflow_cancel", "Request cancellation of a workflow invocation.", {
     runId: requiredString,
   }, ["runId"], { readOnlyHint: false, idempotentHint: true }),

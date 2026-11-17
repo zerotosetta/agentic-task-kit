@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { DurableJSON } from "../types/durable.js";
+import type { DurableJSON, DurableRerun } from "../types/durable.js";
 
 export type McpJobStatus = "queued" | "running" | "interrupted" | "cancelled" | "failed" | "completed";
 export type McpJobError = { code: string; message: string };
@@ -18,6 +18,7 @@ export interface McpJob {
   status: McpJobStatus;
   cancelRequested: boolean;
   error: McpJobError | null;
+  rerun: DurableRerun | null;
 }
 
 interface JobRow {
@@ -32,6 +33,7 @@ interface JobRow {
   expires_at: number | null;
   cancel_requested: 0 | 1;
   error_json: string | null;
+  rerun_json: string | null;
 }
 
 type TerminalStatus = Exclude<McpJobStatus, "queued" | "running">;
@@ -51,6 +53,7 @@ const schema = `
     expires_at INTEGER,
     cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
     error_json TEXT,
+    rerun_json TEXT,
     UNIQUE (profile, idempotency_key)
   ) STRICT;
 `;
@@ -69,6 +72,7 @@ function decode(row: JobRow, now: number): McpJob {
     status: expired ? (cancelRequested ? "cancelled" : "interrupted") : row.status,
     cancelRequested,
     error: row.error_json === null ? null : JSON.parse(row.error_json) as McpJobError,
+    rerun: row.rerun_json === null ? null : JSON.parse(row.rerun_json) as DurableRerun,
   };
 }
 
@@ -100,7 +104,12 @@ export class SqliteMcpJobStore {
     this.database = new sqlite.DatabaseSync(path);
     try {
       this.database.exec("PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;");
-      this.transaction(() => this.database.exec(schema));
+      this.transaction(() => {
+        this.database.exec(schema);
+        if (!this.database.prepare("SELECT 1 FROM pragma_table_info('atk_mcp_jobs') WHERE name = 'rerun_json'").get()) {
+          this.database.exec("ALTER TABLE atk_mcp_jobs ADD COLUMN rerun_json TEXT");
+        }
+      });
     } catch (error) {
       this.database.close();
       throw error;
@@ -167,16 +176,33 @@ export class SqliteMcpJobStore {
   }
 
   queueResume(runId: string, previousToken: string, newToken: string, queueMs: number): McpJob | null {
+    return this.queueExisting(runId, previousToken, newToken, queueMs, null);
+  }
+
+  queueRerun(runId: string, previousToken: string, newToken: string, queueMs: number, rerun: DurableRerun): McpJob | null {
+    return this.queueExisting(runId, previousToken, newToken, queueMs, rerun);
+  }
+
+  private queueExisting(
+    runId: string,
+    previousToken: string,
+    newToken: string,
+    queueMs: number,
+    rerun: DurableRerun | null,
+  ): McpJob | null {
     return this.transaction((now) => {
       const row = this.database.prepare(`
         UPDATE atk_mcp_jobs
-        SET status = 'queued', token = ?, expires_at = ?, cancel_requested = 0, error_json = NULL
+        SET status = 'queued', token = ?, expires_at = ?, cancel_requested = 0, error_json = NULL,
+          rerun_json = COALESCE(?, rerun_json)
         WHERE run_id = ? AND token = ? AND (
           status IN ('interrupted', 'failed', 'cancelled')
+          OR (? IS NOT NULL AND status = 'completed')
           OR (status IN ('queued', 'running') AND expires_at <= ?)
         )
         RETURNING *
-      `).get(newToken, expiration(now, queueMs), runId, previousToken, now) as JobRow | undefined;
+      `).get(newToken, expiration(now, queueMs), rerun && JSON.stringify(rerun),
+        runId, previousToken, rerun?.id ?? null, now) as JobRow | undefined;
       return row ? decode(row, now) : null;
     });
   }

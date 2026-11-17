@@ -1,5 +1,5 @@
 export { createCycle } from "./cycle.js";
-export { advanceInput, getCheckpoint, getDurableAttempts, getDurableRun, resumeDurable, runDurable } from "./durable-execution.js";
+export { advanceInput, getCheckpoint, getDurableAttempts, getDurableRun, resumeDurable, runDurable, scheduleDurableRerun } from "./durable-execution.js";
 export { SqliteDurableExecutionStore } from "./durable-store.js";
 export { DurableExecutionError } from "./durable-validation.js";
 export type {
@@ -8,6 +8,7 @@ export type {
   McpWorkflowInputChange,
   McpWorkflowPlan,
   McpWorkflowProfile,
+  McpWorkflowRerunRequest,
   McpWorkflowStatus,
 } from "./types/mcp.js";
 export type {
@@ -22,6 +23,8 @@ export type {
   DurableInputChangeOptions,
   DurableJSON,
   DurableOutcome,
+  DurableRerun,
+  DurableRerunOptions,
   DurableResumeOptions,
   DurableRunOptions,
   DurableRunResult,

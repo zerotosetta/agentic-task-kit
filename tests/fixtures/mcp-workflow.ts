@@ -61,6 +61,18 @@ export async function createWorkflow({
   const input = checkpoint?.input ?? await snapshot(store, "snapshot-1", { mode: mode ?? null, subject: request.subject ?? null });
   const finish = work("finish", profile.revision);
 
+  async function pauseFirstAttempt(context: DurableStepContext) {
+    if (context.previousAttemptId !== null) return;
+    const orphan = await context.putArtifact("uncommitted", Buffer.from("orphan-byte-fixture"));
+    await writeFile(controlFile("paused.json"), JSON.stringify({
+      pid: process.pid,
+      attemptId: context.attemptId,
+      artifactId: orphan.id,
+      workDirectory,
+    }), "utf8");
+    await waitForRelease(controlFile("release"), context.signal);
+  }
+
   const workflow: DurableWorkflow = {
     workflowKey: "mcp-durable-fixture",
     revision: profile.revision,
@@ -75,16 +87,18 @@ export async function createWorkflow({
       },
       async finish(context) {
         if (mode === "fail") throw new Error("Fixture terminal failure.");
-        if (mode === "wait" && context.previousAttemptId === null) {
-          const orphan = await context.putArtifact("uncommitted", Buffer.from("orphan-byte-fixture"));
-          await writeFile(controlFile("paused.json"), JSON.stringify({
-            pid: process.pid,
-            attemptId: context.attemptId,
-            artifactId: orphan.id,
-            workDirectory,
-          }), "utf8");
-          await waitForRelease(controlFile("release"), context.signal);
+        if (context.work.operationKey.startsWith("fixture:rerun:")) {
+          const scope = context.work.scope as { sourcePaths: string[]; label: string; pause: boolean };
+          if (scope.pause) await pauseFirstAttempt(context);
+          const bytes = JSON.stringify({ sourcePaths: scope.sourcePaths, label: scope.label });
+          const artifact = await context.putArtifact("fixture-rerun", Buffer.from(bytes));
+          return {
+            artifacts: [artifact],
+            outcome: { code: "rerun-verified", detailsRef: artifact.id, scope, previousAttemptId: context.previousAttemptId },
+            next: null,
+          };
         }
+        if (mode === "wait") await pauseFirstAttempt(context);
         const result = await context.putArtifact("fixture-spec", Buffer.from(evidenceBytes));
         return {
           artifacts: [result],
@@ -118,6 +132,27 @@ export async function createWorkflow({
     workflow,
     input,
     first,
+    async planRerun({ checkpoint: head, request: rerun, signal: planSignal }) {
+      const { sourcePaths } = rerun.scope;
+      const { label, pause, pausePlanning } = rerun.params;
+      if (rerun.stepKey !== "finish" || !Array.isArray(sourcePaths)
+        || !sourcePaths.every((path): path is string => typeof path === "string")
+        || typeof label !== "string" || (pause !== undefined && typeof pause !== "boolean")
+        || (pausePlanning !== undefined && typeof pausePlanning !== "boolean")) {
+        throw Object.assign(new Error("Fixture rerun requires finish, sourcePaths, and a label."), { code: "FIXTURE_RERUN_INVALID" });
+      }
+      if (pausePlanning) {
+        await writeFile(controlFile("planning.json"), JSON.stringify({ pid: process.pid }));
+        await waitForRelease(controlFile("accept-plan"), planSignal);
+      }
+      const scope = { sourcePaths: [...new Set(sourcePaths)].sort(), label, pause: pause ?? false };
+      return {
+        stepKey: rerun.stepKey,
+        operationKey: "fixture:rerun:" + rerun.id,
+        scope,
+        cacheFingerprint: sha(JSON.stringify([profile.revision, head.input.sha256, rerun.stepKey, scope])),
+      };
+    },
     async prepareNext({ checkpoint: head, signal: hookSignal }) {
       if (head.next?.stepKey !== "prepare-input") return null;
       hookSignal.throwIfAborted();

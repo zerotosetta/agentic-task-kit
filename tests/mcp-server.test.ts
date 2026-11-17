@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { SqliteDurableExecutionStore } from "../src/durable-store.js";
 import { evidenceBytes } from "./fixtures/mcp-workflow.js";
 import type { McpWorkflowStatus as Status } from "../src/types/mcp.js";
 
@@ -225,6 +226,18 @@ async function status(client: Client, runId: string) {
   return data(await client.call<Status>("workflow_status", { runId }));
 }
 
+async function rerunHistory(fixture: Fixture, runId: string) {
+  const store = new SqliteDurableExecutionStore(join(fixture.root, "state", "execution.sqlite"));
+  try {
+    return {
+      checkpoints: await store.listCheckpoints(runId),
+      attempts: await store.listAttempts(runId),
+    };
+  } finally {
+    store.close();
+  }
+}
+
 async function untilStatus(client: Client, runId: string, desired: Status["status"]) {
   let observed: Status | undefined;
   await expect.poll(async () => {
@@ -235,11 +248,11 @@ async function untilStatus(client: Client, runId: string, desired: Status["statu
   return observed;
 }
 
-async function pausedMarker(fixture: Fixture, runId: string) {
-  let marker: Marker | undefined;
+async function workerMarker<T extends { pid: number }>(fixture: Fixture, runId: string, file: string) {
+  let marker: T | undefined;
   await expect.poll(async () => {
     try {
-      marker = JSON.parse(await readFile(join(fixture.controlDirectory, runId + ".paused.json"), "utf8")) as Marker;
+      marker = JSON.parse(await readFile(join(fixture.controlDirectory, runId + "." + file), "utf8")) as T;
       return marker.pid > 0;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
@@ -253,13 +266,17 @@ async function pausedMarker(fixture: Fixture, runId: string) {
   return marker;
 }
 
+function pausedMarker(fixture: Fixture, runId: string) {
+  return workerMarker<Marker>(fixture, runId, "paused.json");
+}
+
 describe("ATK stdio MCP durable worker", () => {
   it("keeps working across a client disconnect, deduplicates start and pages committed bytes", async () => {
     const fixture = await makeFixture();
     const client = await openClient(fixture.configPath);
     const listed = await client.request<{ tools: Array<{ name: string }> }>("tools/list", {});
     expect(listed.tools.map(tool => tool.name).sort()).toEqual([
-      "workflow_cancel", "workflow_results", "workflow_resume", "workflow_start", "workflow_status",
+      "workflow_cancel", "workflow_rerun", "workflow_results", "workflow_resume", "workflow_start", "workflow_status",
     ]);
 
     const { runId } = await start(client, "same-request", "wait");
@@ -456,5 +473,139 @@ describe("ATK stdio MCP durable worker", () => {
     expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
     const reconnected = await openClient(fixture.configPath);
     expect(await status(reconnected, runId)).toEqual(failed);
+  }, 60_000);
+
+  it("reruns the selected step of a completed run with new parameters and records its request and effective scope", async () => {
+    const fixture = await makeFixture();
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "rerun-request", "ready");
+    const original = await untilStatus(client, runId, "completed");
+    expect(original).toMatchObject({ checkpointSeq: 2, domainStatus: "verified" });
+    const before = data(await client.call<Artifacts>("workflow_results", { runId }));
+
+    const request = {
+      runId, expectedCheckpointSeq: 2, stepKey: "finish",
+      scope: { sourcePaths: ["/fixture/b.jsp", "/fixture/a.jsp", "/fixture/a.jsp"] },
+      params: { label: "changed output" },
+    };
+    const effectiveScope = { sourcePaths: ["/fixture/a.jsp", "/fixture/b.jsp"], label: "changed output", pause: false };
+    expect(data(await client.call<Status>("workflow_rerun", request)).runId).toBe(runId);
+    const final = await untilStatus(client, runId, "completed");
+    expect(final).toMatchObject({
+      runId, checkpointSeq: 4, domainStatus: "rerun-verified", inputSha256: original.inputSha256,
+      rerun: { id: expect.any(String), expectedCheckpointSeq: 2, stepKey: "finish", scope: request.scope, params: request.params },
+      outcome: { scope: effectiveScope },
+    });
+    const { checkpoints, attempts } = await rerunHistory(fixture, runId);
+    expect(checkpoints.find(item => item.checkpointSeq === 3)).toMatchObject({
+      previousCheckpointSeq: 2, rerun: final.rerun, next: { stepKey: "finish", scope: effectiveScope },
+    });
+    expect(checkpoints.find(item => item.checkpointSeq === 4)).toMatchObject({
+      rerun: final.rerun, committed: { stepKey: "finish", scope: effectiveScope }, next: null,
+    });
+    expect(attempts.map(attempt => attempt.work.stepKey)).toEqual(["collect", "finish", "finish"]);
+
+    const after = data(await client.call<Artifacts>("workflow_results", { runId }));
+    expect(after.artifacts).toEqual(expect.arrayContaining(before.artifacts));
+    const updated = after.artifacts.find(artifact => artifact.kind === "fixture-rerun");
+    assert.ok(updated);
+    const chunk = data(await client.call<ArtifactChunk>("workflow_results", { runId, artifactId: updated.id }));
+    expect(JSON.parse(Buffer.from(chunk.data, "base64").toString("utf8"))).toEqual({
+      sourcePaths: effectiveScope.sourcePaths, label: request.params.label,
+    });
+
+    const duplicate = data(await client.call<Status>("workflow_rerun", request));
+    expect(duplicate).toMatchObject({ status: "completed", checkpointSeq: 4, rerun: final.rerun });
+    expect(await client.call("workflow_rerun", { ...request, params: { label: "stale update" } })).toMatchObject({
+      isError: true, structuredContent: { code: "CHECKPOINT_CONFLICT" },
+    });
+
+    // Let the trusted plugin reject an unsupported stage without consuming the existing head.
+    data(await client.call<Status>("workflow_rerun", { ...request, stepKey: "missing-step", expectedCheckpointSeq: 4 }));
+    expect(await untilStatus(client, runId, "failed")).toMatchObject({
+      checkpointSeq: 4, error: { code: "FIXTURE_RERUN_INVALID" },
+    });
+    expect(await rerunHistory(fixture, runId)).toEqual({ checkpoints, attempts });
+  }, 60_000);
+
+  it("preserves a scheduled rerun across a worker kill and resumes only its selected work", async () => {
+    const fixture = await makeFixture();
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "rerun-crash-request", "ready");
+    expect(await untilStatus(client, runId, "completed")).toMatchObject({ checkpointSeq: 2 });
+
+    const request = {
+      runId, expectedCheckpointSeq: 2, stepKey: "finish",
+      scope: { sourcePaths: ["/fixture/selected.jsp"] },
+      params: { label: "restored output", pause: true },
+    };
+    data(await client.call<Status>("workflow_rerun", request));
+    const marker = await pausedMarker(fixture, runId);
+    const running = await status(client, runId);
+    expect(running).toMatchObject({
+      status: "running", checkpointSeq: 3, currentStep: "finish",
+      rerun: { expectedCheckpointSeq: 2, stepKey: "finish", scope: request.scope, params: request.params },
+    });
+    expect(data(await client.call<Status>("workflow_rerun", request))).toMatchObject({
+      status: "running", checkpointSeq: 3, rerun: running.rerun,
+    });
+    expect(await client.call("workflow_rerun", {
+      ...request, expectedCheckpointSeq: 3, params: { label: "overlapping" },
+    })).toMatchObject({ isError: true, structuredContent: { code: "RUN_ACTIVE" } });
+
+    killFixtureWorker(marker.pid);
+    pausedWorkers.delete(marker.pid);
+    expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
+    const recovered = await openClient(fixture.configPath);
+    expect(await untilStatus(recovered, runId, "interrupted")).toMatchObject({
+      checkpointSeq: 3, currentStep: "finish", rerun: running.rerun,
+    });
+    data(await recovered.call<Status>("workflow_resume", { runId, expectedCheckpointSeq: 3 }));
+    expect(await untilStatus(recovered, runId, "completed")).toMatchObject({
+      checkpointSeq: 4, domainStatus: "rerun-verified", rerun: running.rerun,
+      outcome: { previousAttemptId: marker.attemptId, scope: { sourcePaths: request.scope.sourcePaths, label: request.params.label } },
+    });
+    const { attempts } = await rerunHistory(fixture, runId);
+    expect(attempts.map(item => [item.work.stepKey, item.status])).toEqual([
+      ["collect", "committed"], ["finish", "committed"], ["finish", "interrupted"], ["finish", "committed"],
+    ]);
+    const { artifacts } = data(await recovered.call<Artifacts>("workflow_results", { runId }));
+    expect(artifacts.map(item => item.id)).not.toContain(marker.artifactId);
+  }, 60_000);
+
+  it("recovers a pending rerun if its worker dies before the rerun checkpoint is written", async () => {
+    const fixture = await makeFixture();
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "rerun-planning-crash", "ready");
+    expect(await untilStatus(client, runId, "completed")).toMatchObject({ checkpointSeq: 2 });
+
+    const request = {
+      runId, expectedCheckpointSeq: 2, stepKey: "finish",
+      scope: { sourcePaths: ["/fixture/selected.jsp"] },
+      params: { label: "planned again", pausePlanning: true },
+    };
+    data(await client.call<Status>("workflow_rerun", request));
+    const { pid } = await workerMarker(fixture, runId, "planning.json");
+    const pending = await status(client, runId);
+    expect(pending).toMatchObject({
+      status: "running", checkpointSeq: 2, currentStep: "finish",
+      pendingRerun: { id: expect.any(String), expectedCheckpointSeq: 2, stepKey: "finish", scope: request.scope, params: request.params },
+    });
+    killFixtureWorker(pid);
+    pausedWorkers.delete(pid);
+    expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
+
+    const recovered = await openClient(fixture.configPath);
+    expect(await untilStatus(recovered, runId, "interrupted")).toMatchObject({
+      checkpointSeq: 2, pendingRerun: pending.pendingRerun,
+    });
+    await writeFile(join(fixture.controlDirectory, runId + ".accept-plan"), "");
+    data(await recovered.call<Status>("workflow_resume", { runId, expectedCheckpointSeq: 2 }));
+    const completed = await untilStatus(recovered, runId, "completed");
+    expect(completed).toMatchObject({ checkpointSeq: 4, domainStatus: "rerun-verified", rerun: pending.pendingRerun });
+    expect(completed.pendingRerun).toBeUndefined();
+    const { checkpoints, attempts } = await rerunHistory(fixture, runId);
+    expect(checkpoints.filter(item => item.rerun).map(item => item.checkpointSeq)).toEqual([3, 4]);
+    expect(attempts.map(item => item.work.stepKey)).toEqual(["collect", "finish", "finish"]);
   }, 60_000);
 });

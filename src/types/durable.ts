@@ -58,6 +58,15 @@ export interface DurableInputChange {
   retainedArtifacts: readonly DurableArtifactRef[];
 }
 
+/** A caller request and the head it explicitly selected for stage re-execution. */
+export interface DurableRerun {
+  id: string;
+  expectedCheckpointSeq: number;
+  stepKey: string;
+  scope: Readonly<Record<string, DurableJSON>>;
+  params: Readonly<Record<string, DurableJSON>>;
+}
+
 export interface DurableCheckpoint {
   schemaVersion: 1;
   runId: string;
@@ -70,6 +79,7 @@ export interface DurableCheckpoint {
   committed: DurableCommittedWork | null;
   next: DurableWork | null;
   inputChange: DurableInputChange | null;
+  rerun?: DurableRerun;
 }
 
 export type DurableStatus = "running" | "interrupted" | "cancelled" | "failed" | "completed";
@@ -185,4 +195,12 @@ export interface DurableInputChangeOptions {
   reuseArtifactIds: readonly string[];
   next: DurableWork;
   store: DurableExecutionStore;
+}
+
+export interface DurableRerunOptions {
+  workflow: DurableWorkflow;
+  rerun: DurableRerun;
+  next: DurableWork;
+  store: DurableExecutionStore;
+  signal?: AbortSignal;
 }

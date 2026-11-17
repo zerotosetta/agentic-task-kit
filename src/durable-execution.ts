@@ -24,6 +24,8 @@ import type {
   DurableExecutionStore,
   DurableInputChangeOptions,
   DurableOutcome,
+  DurableRerun,
+  DurableRerunOptions,
   DurableResumeOptions,
   DurableRunOptions,
   DurableRunResult,
@@ -150,6 +152,45 @@ export async function advanceInput(runId: string, options: DurableInputChangeOpt
       input,
       committed: null,
       inputChange: { affectedScope, reuseArtifactIds, retainedArtifacts },
+      next,
+    };
+    signal.throwIfAborted();
+    if (!await store.commit(updated, owner)) throw await conflict(store, runId);
+    return updated;
+  });
+}
+
+/** Atomically schedule caller-selected work against the current pinned snapshot. */
+export async function scheduleDurableRerun(runId: string, options: DurableRerunOptions): Promise<DurableCheckpoint> {
+  const { workflow, store, rerun } = options;
+  const { checkpoint } = await requireRun(store, runId);
+  if (!hasText(rerun?.id) || !hasText(rerun.stepKey) ||
+      !Number.isSafeInteger(rerun.expectedCheckpointSeq) || rerun.expectedCheckpointSeq < 0 ||
+      !isRecord(rerun.scope) || !isRecord(rerun.params)) {
+    throw new DurableExecutionError("INVALID_INPUT", "A rerun requires an ID, step key, head sequence, scope and parameters.", checkpoint);
+  }
+  validateHead(workflow, checkpoint, rerun.expectedCheckpointSeq);
+  const next = validateWork(options.next, workflow, checkpoint);
+  if (next.stepKey !== rerun.stepKey) {
+    throw new DurableExecutionError("INVALID_WORK", "The planned work must match the requested rerun step.", checkpoint);
+  }
+  const audit: DurableRerun = {
+    id: rerun.id,
+    expectedCheckpointSeq: rerun.expectedCheckpointSeq,
+    stepKey: rerun.stepKey,
+    scope: copyJSON(rerun.scope, checkpoint, "Rerun scope", "INVALID_INPUT") as DurableRerun["scope"],
+    params: copyJSON(rerun.params, checkpoint, "Rerun parameters", "INVALID_INPUT") as DurableRerun["params"],
+  };
+  await verifyDurableCheckpointArtifacts(store, checkpoint);
+  options.signal?.throwIfAborted();
+  return withLease(store, checkpoint, options.signal, async (owner, signal) => {
+    const updated: DurableCheckpoint = {
+      ...checkpoint,
+      checkpointSeq: checkpoint.checkpointSeq + 1,
+      previousCheckpointSeq: checkpoint.checkpointSeq,
+      committed: null,
+      inputChange: null,
+      rerun: audit,
       next,
     };
     signal.throwIfAborted();

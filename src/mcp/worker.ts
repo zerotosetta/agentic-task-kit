@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { advanceInput, resumeDurable, runDurable, verifyDurableCheckpointArtifacts } from "../durable-execution.js";
+import { advanceInput, resumeDurable, runDurable, scheduleDurableRerun, verifyDurableCheckpointArtifacts } from "../durable-execution.js";
 import { SqliteDurableExecutionStore } from "../durable-store.js";
 import { hasText, sameSnapshot, validateSnapshot } from "../durable-validation.js";
 import type { DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRunResult } from "../types/durable.js";
@@ -157,7 +157,9 @@ export async function runMcpWorker(config: McpConfig, runId: string, token: stri
       assertActive();
       store = new OwnedWorkflowStore(config, assertOwned);
       const current = await store.readRun(runId);
-      if (current?.status === "completed") {
+      let checkpoint = current?.checkpoint ?? null;
+      const pending = job.rerun && job.rerun.id !== checkpoint?.rerun?.id ? job.rerun : null;
+      if (current?.status === "completed" && !pending) {
         jobs.finish(runId, token, "completed", null);
         return;
       }
@@ -174,13 +176,25 @@ export async function runMcpWorker(config: McpConfig, runId: string, token: stri
       mkdirSync(workDirectory, { recursive: true });
       const plan = await module.createWorkflow({
         runId, workDirectory, profile, request: job.request as Readonly<Record<string, DurableJSON>>,
-        store, checkpoint: current?.checkpoint ?? null, signal,
+        store, checkpoint, signal,
       });
       assertActive();
       if (plan?.workflow?.revision !== profile.revision) {
         throw new McpWorkflowError("WORKFLOW_REVISION_MISMATCH", "The plugin workflow revision must match its registered profile.");
       }
-      const result = await executePlan(runId, store, plan, current?.checkpoint ?? null, profile.maxSteps, signal, assertActive);
+      if (pending) {
+        if (!checkpoint || checkpoint.checkpointSeq !== pending.expectedCheckpointSeq) {
+          throw new McpWorkflowError("CHECKPOINT_CONFLICT", "The rerun's selected checkpoint is no longer the committed head.");
+        }
+        if (typeof plan.planRerun !== "function") {
+          throw new McpWorkflowError("RERUN_UNSUPPORTED", "This workflow profile does not support stage reruns.");
+        }
+        requireMatchingInput(plan, checkpoint);
+        const next = await plan.planRerun({ checkpoint: structuredClone(checkpoint), request: structuredClone(pending), signal });
+        assertActive();
+        checkpoint = await scheduleDurableRerun(runId, { workflow: plan.workflow, rerun: pending, next, store, signal });
+      }
+      const result = await executePlan(runId, store, plan, checkpoint, profile.maxSteps, signal, assertActive);
       jobs.finish(runId, token, result.status === "running" ? "interrupted" : result.status, result.error);
     } catch (error) {
       jobs.finish(runId, token, signal.reason === cancelled ? "cancelled" : "failed", jobError(error, "WORKER_FAILED"));

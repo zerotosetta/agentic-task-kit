@@ -54,6 +54,7 @@
   "resumeDurable",
   "runAgentSession",
   "runDurable",
+  "scheduleDurableRerun",
   "toSerializableValue",
   "toWorkflowCancellationError",
   "workflowInputToObject",

@@ -3,6 +3,7 @@ import type {
   DurableExecutionStore,
   DurableJSON,
   DurableOutcome,
+  DurableRerun,
   DurableWork,
   DurableWorkflow,
   SnapshotInput,
@@ -39,7 +40,12 @@ export interface McpWorkflowPlan {
   first: DurableWork;
   prepareNext?(context: { checkpoint: DurableCheckpoint; signal: AbortSignal }):
     McpWorkflowInputChange | undefined | null | Promise<McpWorkflowInputChange | undefined | null>;
+  /** Validate and plan a caller-selected stage using previously committed run data. */
+  planRerun?(context: { checkpoint: DurableCheckpoint; request: McpWorkflowRerunRequest; signal: AbortSignal }):
+    DurableWork | Promise<DurableWork>;
 }
+
+export type McpWorkflowRerunRequest = DurableRerun;
 
 export type McpWorkflowFactory = (context: McpWorkflowContext) => McpWorkflowPlan | Promise<McpWorkflowPlan>;
 
@@ -55,4 +61,6 @@ export interface McpWorkflowStatus {
   inputSha256: string | null;
   error: { code: string; message: string } | null;
   cancelRequested: boolean;
+  rerun?: DurableRerun;
+  pendingRerun?: DurableRerun;
 }
