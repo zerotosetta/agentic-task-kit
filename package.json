@@ -26,7 +26,8 @@
   "files": [
     "dist",
     "LICENSE",
-    "docs/agent-session-guide.md"
+    "docs/agent-session-guide.md",
+    "docs/durable-execution.md"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",

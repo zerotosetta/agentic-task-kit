@@ -1,4 +1,30 @@
 export { createCycle } from "./cycle.js";
+export { advanceInput, getCheckpoint, getDurableAttempts, getDurableRun, resumeDurable, runDurable } from "./durable-execution.js";
+export { SqliteDurableExecutionStore } from "./durable-store.js";
+export { DurableExecutionError } from "./durable-validation.js";
+export type {
+  DurableArtifactRef,
+  DurableAttempt,
+  DurableCheckpoint,
+  DurableCommittedWork,
+  DurableErrorCode,
+  DurableErrorDetails,
+  DurableExecutionStore,
+  DurableInputChange,
+  DurableInputChangeOptions,
+  DurableJSON,
+  DurableOutcome,
+  DurableResumeOptions,
+  DurableRunOptions,
+  DurableRunResult,
+  DurableStatus,
+  DurableStep,
+  DurableStepContext,
+  DurableStepResult,
+  DurableWork,
+  DurableWorkflow,
+  SnapshotInput,
+} from "./types/durable.js";
 export { runAgentSession, parseAgentReply, createAgentReplySchema, resolveAgentSessionLimits, AGENT_PROTOCOL_VERSION, AgentSessionError } from "./agent-session.js";
 export { InMemoryAgentSessionStore, FileAgentSessionStore } from "./agent-session-store.js";
 export type { AgentJSON, AgentScope, AgentDataRequest, AgentDataResponse, AgentReply, AgentTurn, AgentExchange, AgentRound, AgentSessionState, AgentSessionStore, AgentSessionLimits, AgentSessionOptions } from "./types/agent.js";

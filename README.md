@@ -17,6 +17,7 @@ npm install agentic-task-kit
 - `Map<string, any>` workflow input contract
 - shard/kind 기반 in-memory memory engine
 - in-memory artifact store
+- [영속 실행과 체크포인트 재개](./docs/durable-execution.md)
 - execution event stream
 - `TaskLogger` / `ctx.log`
 - automatic `beforeStep` / `afterStep` memory hook

@@ -65,8 +65,8 @@ is checkpointed may run again; providers must be read-only/idempotent.
 
 A process crash can leave a `.lock` file. Inspect its PID and confirm the previous
 owner has stopped before removing that one lock file. Locks are never automatically
-stolen. Full Cycle-level `durable: true` and resuming an entire workflow remain
-outside this session API; session resumption does not imply workflow durability.
+stolen. Use the [durable execution API](./durable-execution.md) to resume a
+workflow made of explicitly registered durable steps.
 
 ## Memory isolation
 
