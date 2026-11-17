@@ -18,6 +18,7 @@ npm install agentic-task-kit
 - shard/kind 기반 in-memory memory engine
 - in-memory artifact store
 - [영속 실행과 체크포인트 재개](./docs/durable-execution.md)
+- [로컬 MCP 서버와 영속 워크플로 실행기](./docs/mcp-workflows.md)
 - execution event stream
 - `TaskLogger` / `ctx.log`
 - automatic `beforeStep` / `afterStep` memory hook

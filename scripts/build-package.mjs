@@ -1,5 +1,5 @@
 import { builtinModules } from "node:module";
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 
 import { build } from "esbuild";
@@ -7,20 +7,32 @@ import { build } from "esbuild";
 const external = builtinModules.flatMap((name) => [name, `node:${name}`]);
 const distDir = "dist";
 
-await build({
-  entryPoints: ["src/index.ts"],
-  outfile: `${distDir}/index.js`,
+const requireBanner = 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);';
+const bundleOptions = {
   bundle: true,
   platform: "node",
   format: "esm",
   target: "node22",
   sourcemap: true,
   legalComments: "none",
-  banner: {
-    js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
-  },
   external
-});
+};
+const cli = `${distDir}/atk-mcp.js`;
+await Promise.all([
+  build({
+    ...bundleOptions,
+    entryPoints: ["src/index.ts"],
+    outfile: `${distDir}/index.js`,
+    banner: { js: requireBanner },
+  }),
+  build({
+    ...bundleOptions,
+    entryPoints: ["src/mcp/cli.ts"],
+    outfile: cli,
+    banner: { js: "#!/usr/bin/env node\n" + requireBanner },
+  }),
+]);
+await chmod(cli, 0o755);
 
 const declarationFiles = await listDeclarationFiles(distDir);
 

@@ -3,6 +3,14 @@ export { advanceInput, getCheckpoint, getDurableAttempts, getDurableRun, resumeD
 export { SqliteDurableExecutionStore } from "./durable-store.js";
 export { DurableExecutionError } from "./durable-validation.js";
 export type {
+  McpWorkflowContext,
+  McpWorkflowFactory,
+  McpWorkflowInputChange,
+  McpWorkflowPlan,
+  McpWorkflowProfile,
+  McpWorkflowStatus,
+} from "./types/mcp.js";
+export type {
   DurableArtifactRef,
   DurableAttempt,
   DurableCheckpoint,

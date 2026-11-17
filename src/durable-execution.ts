@@ -216,6 +216,12 @@ async function loadCatalog(store: DurableExecutionStore, checkpoint: DurableChec
   return catalog;
 }
 
+/** Verify a persisted head before a host invokes an input-transition hook. */
+export async function verifyDurableCheckpointArtifacts(store: DurableExecutionStore, checkpoint: DurableCheckpoint): Promise<void> {
+  const catalog = await loadCatalog(store, checkpoint);
+  await verifyArtifacts(store, catalog.artifacts.values(), checkpoint);
+}
+
 async function verifyArtifacts(store: DurableExecutionStore, refs: Iterable<DurableArtifactRef>, checkpoint: DurableCheckpoint | null): Promise<void> {
   for (const ref of refs) await readVerifiedArtifact(store, ref, checkpoint);
 }
