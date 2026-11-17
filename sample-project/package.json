@@ -45,7 +45,7 @@
     },
     "@leflect-java/parser-tld": {
       "adm-zip": "0.6.1",
-      "fast-xml-parser": "5.11.2"
+      "fast-xml-parser": "5.12.1"
     }
   }
 }
