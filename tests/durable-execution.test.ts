@@ -417,6 +417,60 @@ describe("durable execution contract", () => {
     expect(realScan.mock.calls).toEqual([[first.scope], [alternateScope.scope]]);
   });
 
+  it.each([
+    { order: "descending", sequences: [2, 1, 0] },
+    { order: "shuffled", sequences: [2, 0, 1] },
+  ])("reuses the newest checkpoint when the store lists checkpoints in $order order", async ({ sequences }) => {
+    const store = openStore();
+    const input = await snapshot(store, "cache-ordering", []);
+    const first = work("scan", "scan:evidence", { sourcePaths: [affectedPath] });
+    const workflow: DurableWorkflow = {
+      workflowKey: "reuse-ordering-fixture",
+      revision,
+      steps: {
+        async scan(ctx) {
+          const seq = ctx.checkpoint.checkpointSeq;
+          if (seq < 2) {
+            const code = seq === 0 ? "older-result" : "newer-result";
+            const artifact = await put(ctx, "evidence", code);
+            return { outcome: { code }, artifacts: [artifact], next: first };
+          }
+          const cached = ctx.findReusableWork();
+          if (!cached) throw new Error("Expected committed work to reuse.");
+          return { reuseFrom: cached.checkpointSeq, next: null };
+        },
+      },
+    };
+
+    const paused = await runDurable(workflow, { input, first, store, maxSteps: 2 });
+    expect(paused.status).toBe("interrupted");
+    expect(paused.checkpoint.committed?.outcome.code).toBe("newer-result");
+    const history = await store.listCheckpoints(paused.runId);
+    const checkpoints = new Map(history.map(checkpoint => [checkpoint.checkpointSeq, checkpoint]));
+    const list = vi.spyOn(store, "listCheckpoints").mockImplementation(async (runId) => {
+      expect(runId).toBe(paused.runId);
+      return sequences.map(seq => {
+        const checkpoint = checkpoints.get(seq);
+        if (!checkpoint) throw new Error("Fixture checkpoint is missing.");
+        return checkpoint;
+      });
+    });
+
+    const final = await resumeDurable(paused.runId, {
+      workflow,
+      expectedInput: input,
+      expectedCheckpointSeq: paused.checkpoint.checkpointSeq,
+      store,
+    });
+    expect(list).toHaveBeenCalled();
+    expect(final.status).toBe("completed");
+    expect(final.checkpoint.committed).toMatchObject({
+      outcome: { code: "newer-result" },
+      artifacts: paused.checkpoint.committed?.artifacts,
+      reusedFrom: { checkpointSeq: 2, attemptId: paused.checkpoint.committed?.attemptId },
+    });
+  });
+
   it("records a nested durable failure at the outer attempt and allows a linked retry", async () => {
     const store = openStore();
     const input = await snapshot(store, "nested-work", []);

@@ -199,7 +199,11 @@ function createCatalog(input: SnapshotInput): Catalog {
 
 function indexCommit(catalog: Catalog, checkpointSeq: number, committed: DurableCommittedWork): void {
   for (const ref of committed.artifacts) catalog.artifacts.set(ref.id, ref);
-  catalog.reusable.set(workIdentity(committed), { checkpointSeq, committed });
+  const identity = workIdentity(committed);
+  const previous = catalog.reusable.get(identity);
+  if (!previous || checkpointSeq > previous.checkpointSeq) {
+    catalog.reusable.set(identity, { checkpointSeq, committed });
+  }
 }
 
 async function loadCatalog(store: DurableExecutionStore, checkpoint: DurableCheckpoint): Promise<Catalog> {

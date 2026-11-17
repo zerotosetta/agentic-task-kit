@@ -117,6 +117,7 @@ export interface DurableExecutionStore {
   createRun(checkpoint: DurableCheckpoint): Promise<boolean>;
   readRun(runId: string): Promise<DurableRunResult | null>;
   readCheckpoint(runId: string, checkpointSeq: number): Promise<DurableCheckpoint | null>;
+  /** Returns committed checkpoints in any order. */
   listCheckpoints(runId: string): Promise<readonly DurableCheckpoint[]>;
   listAttempts(runId: string): Promise<readonly DurableAttempt[]>;
   /** Atomically checks the head sequence and claims an unowned or expired run. */
