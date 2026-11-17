@@ -16,6 +16,7 @@ For module boundaries, validation, async observer cleanup and streaming cancella
 - optional provider-level HTTP debug logging
 - separate config file loader for OpenAI-compatible provider
 - in-memory memory and artifact stores
+- [durable step execution backed by SQLite](./durable-execution.md)
 - CLI renderer with:
   - `ink` full-screen 2-column TUI
   - `compact`
@@ -30,6 +31,5 @@ For module boundaries, validation, async observer cleanup and streaming cancella
 
 ## Current limitation
 - parallel transition is typed but not implemented in the Foundation MVP
-- durable execution is not implemented
 - embeddings adapter 는 아직 없다
 - hybrid retrieval currently uses lightweight lexical-first scoring
