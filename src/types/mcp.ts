@@ -38,6 +38,8 @@ export interface McpWorkflowPlan {
   workflow: DurableWorkflow;
   input: SnapshotInput;
   first: DurableWork;
+  /** Release the invocation at a committed boundary while retaining its pending work. */
+  pauseBefore?(context: { checkpoint: DurableCheckpoint; signal: AbortSignal }): boolean | Promise<boolean>;
   prepareNext?(context: { checkpoint: DurableCheckpoint; signal: AbortSignal }):
     McpWorkflowInputChange | undefined | null | Promise<McpWorkflowInputChange | undefined | null>;
   /** Validate and plan a caller-selected stage using previously committed run data. */

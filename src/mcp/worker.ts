@@ -81,7 +81,7 @@ async function executePlan(
   signal: AbortSignal,
   assertActive: () => void,
 ): Promise<DurableRunResult> {
-  const { workflow, prepareNext } = plan;
+  const { workflow, prepareNext, pauseBefore } = plan;
   let remaining = stepLimit ?? Infinity;
   let latest: DurableRunResult | undefined;
   let head = checkpoint;
@@ -90,6 +90,10 @@ async function executePlan(
 
   while (true) {
     assertActive();
+    if (head?.next && pauseBefore && await pauseBefore({ checkpoint: structuredClone(head), signal })) {
+      assertActive();
+      return { runId, status: "interrupted", checkpoint: head, error: null };
+    }
     if (head?.next && prepareNext) {
       const change = await prepareNext({ checkpoint: structuredClone(head), signal });
       assertActive();
@@ -99,7 +103,7 @@ async function executePlan(
       }
     }
 
-    const maxSteps = prepareNext ? 1 : stepLimit;
+    const maxSteps = prepareNext || pauseBefore ? 1 : stepLimit;
     const options = { store, signal, ...(maxSteps === undefined ? {} : { maxSteps }) };
     const previousSeq = head?.checkpointSeq ?? 0;
     assertActive();
@@ -115,7 +119,7 @@ async function executePlan(
     }
     const committed = latest.checkpoint.checkpointSeq - previousSeq;
     remaining -= committed;
-    if (latest.status !== "interrupted" || remaining <= 0 || !prepareNext) return latest;
+    if (latest.status !== "interrupted" || remaining <= 0 || (!prepareNext && !pauseBefore)) return latest;
     head = latest.checkpoint;
     expectedInput = head.input;
   }
