@@ -92,6 +92,7 @@ else await start();
 - `getCheckpoint(runId, {store, checkpointSeq?})`는 현재 또는 지정한 체크포인트를, `getDurableRun(runId, {store})`는 현재 체크포인트와 실행 상태를, `getDurableAttempts(runId, {store})`는 시도와 선행 시도 및 커밋 순번을 돌려줍니다. 저장소 API인 `listCheckpoints(runId)`로 전체 체크포인트를 조회할 수 있습니다.
 - 상태는 `running`, `interrupted`, `cancelled`, `failed`, `completed` 중 하나입니다. 도메인 판정은 `committed.outcome`에 있습니다. 이슈, coverage, cursor 등은 JSON으로 보존됩니다. `detailsRef`와 `coverageRef`는 해당 작업이 공개하는 목록이나 현재 세대에 공개된 ID여야 합니다.
 - 잘못된 입력이나 리비전, 해시 불일치, 동시 실행 충돌은 공개 API에서 `DurableExecutionError`로 전달됩니다. 오류에는 `code`, `message`, `runId`, `checkpointSeq`, `artifactId`가 있습니다. 작업 실행 중 취소 또는 실패는 같은 오류 구조를 `DurableRunResult.error`에 담으며 마지막 체크포인트의 `next`가 재시도 대상입니다. 작업 중 발견한 아티팩트 불일치도 실패 결과에 해당 코드를 담습니다.
+- 단계가 문자열 `code`와 `message`를 가진 오류를 던지면 실행 오류의 코드는 `STEP_FAILED`이고 원래 코드와 메시지는 `error.cause`에 저장됩니다. 플러그인이 현재 체크포인트에서 재개할 수 없다고 판단하면 오류에 `recoverable: false`를 지정하세요. 이 값은 `error.recoverable`과 `error.cause.recoverable`로 전달됩니다. 메시지는 실행 상태를 조회하는 사용자에게 표시됩니다.
 
 ## 재사용과 재시도
 

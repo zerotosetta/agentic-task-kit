@@ -2,12 +2,13 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
+import { isNonRecoverableFailure } from "../durable-errors.js";
 import { SqliteDurableExecutionStore } from "../durable-store.js";
 import { copyJSON, hasText, isRecord } from "../durable-validation.js";
-import type { DurableJSON, DurableRerun, DurableRunResult } from "../types/durable.js";
+import type { DurableCheckpoint, DurableJSON, DurableRerun, DurableRunResult } from "../types/durable.js";
 import type { McpWorkflowStatus } from "../types/mcp.js";
 import { jsonFingerprint, McpWorkflowError, profileFingerprint, type McpConfig } from "./config.js";
-import { SqliteMcpJobStore, type McpJob } from "./job-store.js";
+import { SqliteMcpJobStore, type McpJob, type McpJobError } from "./job-store.js";
 import { readResults } from "./results.js";
 import { jobError, requirePinnedProfile } from "./worker.js";
 
@@ -59,16 +60,72 @@ function invocationCompleted(job: McpJob, run: DurableRunResult | null): boolean
   return !pendingRerun(job, run) && (job.status === "completed" || run?.status === "completed");
 }
 
+function runActive(runId: string): McpWorkflowError {
+  return new McpWorkflowError("RUN_ACTIVE", `The invocation or its durable lease is active. Call workflow_status with runId "${runId}".`);
+}
+
+function nextAction(
+  status: McpWorkflowStatus["status"],
+  runId: string,
+  run: DurableRunResult | null,
+  error: McpWorkflowStatus["error"],
+): McpWorkflowStatus["nextAction"] {
+  if (status === "completed") {
+    return { action: "results", tool: "workflow_results", arguments: { runId }, reason: "Read the committed artifacts." };
+  }
+  if (status === "queued" || status === "running" || run?.status === "running") {
+    const reason = status === "interrupted" || status === "cancelled" || status === "failed"
+      ? "Wait for the durable execution lease to expire."
+      : "Poll this invocation for its next checkpoint or progress report.";
+    return { action: "status", tool: "workflow_status", arguments: { runId }, retryAfterMs: 1000, reason };
+  }
+  if (isNonRecoverableFailure(error) || (status === "failed" && error?.recoverable !== true)) {
+    return { action: "inspect", tool: null, arguments: { runId }, reason: "Inspect the recorded failure before taking further action." };
+  }
+  return {
+    action: "resume", tool: "workflow_resume",
+    arguments: { runId, ...(run && { expectedCheckpointSeq: run.checkpoint.checkpointSeq }) },
+    reason: "Resume the same run from its committed head.",
+  };
+}
+
+function invocationState(job: McpJob, run: DurableRunResult | null) {
+  const pending = pendingRerun(job, run);
+  let status = job.status;
+  // A worker with a live token still needs to publish the terminal job state before a new rerun can be queued.
+  if (!pending && run?.status === "completed" && status !== "queued" && status !== "running") status = "completed";
+  const workerLost = job.error?.code === "WORKER_EXITED" || job.error?.code === "WORKER_LEASE_EXPIRED";
+  // A resume can lose its worker in the factory, before it has touched the previous invocation's failed head.
+  const durableFailure = !pending && workerLost && job.activeAttemptId !== null && run?.status === "failed"
+    ? run.error : null;
+  if (durableFailure) status = "failed";
+  const error = status === "completed" || status === "queued" || status === "running"
+    ? null : durableFailure ?? job.error ?? (pending ? null : run?.error ?? null);
+  return { status, error, pending };
+}
+
 function formatStatus(
   job: McpJob,
   run: DurableRunResult | null,
-  outcome = run?.checkpoint.committed?.outcome ?? null,
+  committedHead: DurableCheckpoint | undefined,
 ): McpWorkflowStatus {
   const checkpoint = run?.checkpoint;
-  const pending = pendingRerun(job, run);
-  let status = job.status;
-  if (!pending && run?.status === "completed") status = "completed";
-  if (status === "interrupted" && run?.status === "running") status = "running";
+  const { status, error, pending } = invocationState(job, run);
+  const lastCompletedStep = committedHead?.committed ? {
+    stepKey: committedHead.committed.stepKey, generation: committedHead.generation,
+    checkpointSeq: committedHead.checkpointSeq, outcome: committedHead.committed.outcome,
+  } : null;
+  const outcome = lastCompletedStep?.outcome ?? null;
+  let state: McpWorkflowStatus["worker"]["state"] = "stopped";
+  if (job.status === "queued") state = "starting";
+  else if (job.status === "running") state = "alive";
+  else if (job.expiresAt !== null) state = "expired";
+  // Different databases can briefly expose the old progress row beside a newly committed head.
+  const progress = job.progress && checkpoint && !pending &&
+    (job.progress.checkpointSeq === checkpoint.checkpointSeq ||
+      (!checkpoint.next && job.progress.stepKey === checkpoint.committed?.stepKey &&
+        job.progress.checkpointSeq === checkpoint.previousCheckpointSeq))
+    ? job.progress : null;
   return {
     runId: job.runId,
     profile: job.profile,
@@ -76,12 +133,18 @@ function formatStatus(
     checkpointSeq: checkpoint?.checkpointSeq ?? null,
     generation: checkpoint?.generation ?? null,
     currentStep: pending?.stepKey ?? checkpoint?.next?.stepKey ?? null,
+    lastCompletedStep,
+    lastProgressAt: job.lastProgressAt,
+    progress,
+    worker: {
+      state, pid: job.workerPid, startedAt: job.startedAt, heartbeatAt: job.heartbeatAt,
+      leaseExpiresAt: job.expiresAt === null ? null : new Date(job.expiresAt).toISOString(),
+    },
+    nextAction: nextAction(status, job.runId, run, error),
     domainStatus: outcome?.code ?? null,
     outcome,
     inputSha256: checkpoint?.input.sha256 ?? null,
-    error: status === "completed" || status === "queued" || status === "running"
-      ? null
-      : job.error ?? (pending ? null : run?.error ?? null),
+    error,
     cancelRequested: job.cancelRequested,
     ...(checkpoint?.rerun && { rerun: checkpoint.rerun }),
     ...(pending && { pendingRerun: pending }),
@@ -159,7 +222,7 @@ export class McpWorkflowService {
     while (checkpoint && !checkpoint.committed && checkpoint.previousCheckpointSeq !== null) {
       checkpoint = await this.execution.readCheckpoint(runId, checkpoint.previousCheckpointSeq) ?? undefined;
     }
-    return formatStatus(job, run, checkpoint?.committed?.outcome ?? null);
+    return formatStatus(job, run, checkpoint);
   }
 
   private async start(args: Arguments, signal: AbortSignal): Promise<McpWorkflowStatus> {
@@ -211,10 +274,12 @@ export class McpWorkflowService {
     if (expectedSha !== undefined && expectedSha !== run?.checkpoint.input.sha256) {
       throw new McpWorkflowError("INPUT_SNAPSHOT_MISMATCH", "Expected input hash differs from the committed snapshot.");
     }
-    if (invocationCompleted(job, run)) return formatStatus(job, run);
+    if (invocationCompleted(job, run)) return this.status(runId);
     if (job.status === "running" || job.status === "queued" || run?.status === "running") {
-      throw new McpWorkflowError("RUN_ACTIVE", "The run has a queued or active invocation.");
+      throw runActive(runId);
     }
+    const failure = invocationState(job, run).error;
+    if (failure?.recoverable === false || failure?.cause?.recoverable === false) throw failure;
     requirePinnedProfile(this.config, job);
     signal.throwIfAborted();
     const scheduled = this.jobs.queueResume(runId, job.token, randomUUID(), this.config.queueMs);
@@ -245,7 +310,7 @@ export class McpWorkflowService {
       throw new McpWorkflowError("CHECKPOINT_CONFLICT", "Expected checkpoint differs from the committed head.");
     }
     if (job.status === "running" || job.status === "queued" || run.status === "running") {
-      throw new McpWorkflowError("RUN_ACTIVE", "The run has a queued or active invocation.");
+      throw runActive(runId);
     }
     requirePinnedProfile(this.config, job);
     signal.throwIfAborted();
@@ -264,7 +329,7 @@ export class McpWorkflowService {
     const job = this.requireJob(runId);
     const run = await this.execution.readRun(runId);
     signal.throwIfAborted();
-    if (invocationCompleted(job, run)) return formatStatus(job, run);
+    if (invocationCompleted(job, run)) return this.status(runId);
     this.jobs.cancel(runId);
     return this.status(runId);
   }
@@ -279,31 +344,34 @@ export class McpWorkflowService {
       const child = spawn(process.execPath, [
         ...sqliteFlag, this.workerEntry, "--config", this.config.configPath, "--worker", job.runId, job.token,
       ], { detached: true, windowsHide: true, stdio: ["ignore", log, log] });
-      child.once("error", error => this.noteLaunchFailure(job, error));
+      child.once("error", error => this.recordWorkerFailure(job, jobError(error, "WORKER_LAUNCH_FAILED"), "launch"));
       child.once("exit", (code, signal) => {
-        if (code !== 0) this.noteLaunchFailure(job, new Error("Worker exited before claiming its invocation (" + (signal ?? code) + ")."));
+        this.recordWorkerFailure(job, {
+          code: "WORKER_EXITED", message: `Worker exited before recording completion (${signal ?? code}).`, recoverable: true,
+        }, "exit");
       });
       child.unref();
     } catch (error) {
-      this.noteLaunchFailure(job, error);
+      this.recordWorkerFailure(job, jobError(error, "WORKER_LAUNCH_FAILED"), "launch");
     } finally {
       if (log !== undefined) closeSync(log);
     }
   }
 
-  private noteLaunchFailure(job: McpJob, error: unknown): void {
+  private recordWorkerFailure(job: McpJob, error: McpJobError, event: "launch" | "exit"): void {
     try {
       const jobs = new SqliteMcpJobStore(this.config.jobDatabase);
       try {
-        const current = jobs.read(job.runId);
-        if (current?.status === "queued" && current.token === job.token) {
-          jobs.finish(job.runId, job.token, "failed", jobError(error, "WORKER_LAUNCH_FAILED"));
+        if (event === "exit") {
+          jobs.noteExit(job.runId, job.token, error);
+        } else if (jobs.read(job.runId)?.status === "queued") {
+          jobs.finish(job.runId, job.token, "failed", error);
         }
       } finally {
         jobs.close();
       }
     } catch (failure) {
-      process.stderr.write("Could not persist worker launch failure: " + String(failure) + "\n");
+      process.stderr.write("Could not persist worker " + event + " event: " + String(failure) + "\n");
     }
   }
 }

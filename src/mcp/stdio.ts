@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+import { normalizeFailure } from "../durable-errors.js";
 import { isRecord } from "../durable-validation.js";
 
 type RpcId = string | number;
@@ -31,12 +32,12 @@ function tool(
 }
 
 const tools = [
-  tool("workflow_start", "Schedule a workflow from a registered profile and return its run ID.", {
+  tool("workflow_start", "Schedule a workflow and return its run ID. If the response was lost, repeat the same profile, request and idempotency key.", {
     profile: requiredString,
     request: { type: "object" },
     idempotencyKey: requiredString,
   }, ["profile", "request", "idempotencyKey"], { readOnlyHint: false, idempotentHint: true }),
-  tool("workflow_status", "Read the persisted run and current checkpoint status.", {
+  tool("workflow_status", "Poll the same run ID for its committed checkpoint, current work, progress, worker heartbeat and next action.", {
     runId: requiredString,
   }, ["runId"], { readOnlyHint: true }),
   tool("workflow_resume", "Schedule another invocation for an interrupted, cancelled, or failed run.", {
@@ -81,7 +82,7 @@ function isRpcReply(message: Record<string, unknown>): boolean {
     && (Object.hasOwn(message, "result") !== Object.hasOwn(message, "error"));
 }
 
-function toolResult(data: Record<string, unknown>, legacy: boolean, isError = false) {
+function toolResult(data: object, legacy: boolean, isError = false) {
   return {
     content: [{ type: "text", text: JSON.stringify(data) }],
     ...(legacy ? {} : { structuredContent: data }),
@@ -90,12 +91,8 @@ function toolResult(data: Record<string, unknown>, legacy: boolean, isError = fa
 }
 
 function toolError(error: unknown) {
-  if (error instanceof Error) {
-    const code = (error as Error & { code?: unknown }).code;
-    return { code: typeof code === "string" ? code : "INTERNAL_ERROR", message: error.message };
-  }
-  if (isRecord(error) && typeof error.code === "string" && typeof error.message === "string") {
-    return { code: error.code, message: error.message };
+  if (error instanceof Error || (isRecord(error) && typeof error.code === "string" && typeof error.message === "string")) {
+    return normalizeFailure(error, "INTERNAL_ERROR", "Workflow request failed.");
   }
   return { code: "INTERNAL_ERROR", message: "Workflow request failed." };
 }

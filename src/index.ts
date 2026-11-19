@@ -8,6 +8,8 @@ export type {
   McpWorkflowInputChange,
   McpWorkflowPlan,
   McpWorkflowProfile,
+  McpWorkflowProgress,
+  McpWorkflowProgressUpdate,
   McpWorkflowRerunRequest,
   McpWorkflowStatus,
 } from "./types/mcp.js";
@@ -16,6 +18,7 @@ export type {
   DurableAttempt,
   DurableCheckpoint,
   DurableCommittedWork,
+  DurableErrorCause,
   DurableErrorCode,
   DurableErrorDetails,
   DurableExecutionStore,

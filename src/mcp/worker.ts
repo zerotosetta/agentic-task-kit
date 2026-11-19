@@ -2,19 +2,16 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { advanceInput, resumeDurable, runDurable, scheduleDurableRerun, verifyDurableCheckpointArtifacts } from "../durable-execution.js";
+import { normalizeFailure } from "../durable-errors.js";
 import { SqliteDurableExecutionStore } from "../durable-store.js";
-import { hasText, sameSnapshot, validateSnapshot } from "../durable-validation.js";
-import type { DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRunResult } from "../types/durable.js";
-import type { McpWorkflowFactory, McpWorkflowPlan, McpWorkflowProfile } from "../types/mcp.js";
+import { sameSnapshot, validateSnapshot } from "../durable-validation.js";
+import type { DurableAttempt, DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRunResult } from "../types/durable.js";
+import type { McpWorkflowFactory, McpWorkflowPlan, McpWorkflowProfile, McpWorkflowProgressUpdate } from "../types/mcp.js";
 import { McpWorkflowError, profileFingerprint, type McpConfig } from "./config.js";
 import { SqliteMcpJobStore, type McpJobError, type McpJob } from "./job-store.js";
 
 export function jobError(error: unknown, fallbackCode: string): McpJobError {
-  const code: unknown = error instanceof Error && "code" in error ? error.code : undefined;
-  return {
-    code: hasText(code) ? code : fallbackCode,
-    message: error instanceof Error ? error.message : (hasText(error) ? error : fallbackCode),
-  };
+  return normalizeFailure(error, fallbackCode);
 }
 
 export function requirePinnedProfile(config: McpConfig, job: McpJob): McpWorkflowProfile {
@@ -37,8 +34,25 @@ function requireMatchingInput(plan: McpWorkflowPlan, checkpoint: DurableCheckpoi
 }
 
 class OwnedWorkflowStore extends SqliteDurableExecutionStore {
-  constructor(config: McpConfig, private readonly assertOwned: () => void) {
+  private attempt: DurableAttempt | null = null;
+
+  constructor(
+    config: McpConfig,
+    private readonly assertOwned: () => void,
+    private readonly jobs: SqliteMcpJobStore,
+    private readonly runId: string,
+    private readonly token: string,
+  ) {
     super(config.executionDatabase, { leaseMs: config.leaseMs });
+  }
+
+  reportProgress(update: McpWorkflowProgressUpdate): void {
+    if (this.attempt) this.jobs.reportProgress(this.runId, this.token, this.attempt, update);
+  }
+
+  override close(): void {
+    this.attempt = null;
+    super.close();
   }
 
   override async createRun(...args: Parameters<DurableExecutionStore["createRun"]>) {
@@ -58,17 +72,30 @@ class OwnedWorkflowStore extends SqliteDurableExecutionStore {
 
   override async beginAttempt(...args: Parameters<DurableExecutionStore["beginAttempt"]>) {
     this.assertOwned();
-    return super.beginAttempt(...args);
+    const attempt = await super.beginAttempt(...args);
+    if (attempt && args[0] === this.runId) {
+      this.attempt = attempt;
+      this.jobs.markStep(this.runId, this.token, attempt.attemptId);
+    }
+    return attempt;
   }
 
   override async commit(...args: Parameters<DurableExecutionStore["commit"]>) {
     this.assertOwned();
-    return super.commit(...args);
+    const committed = await super.commit(...args);
+    const [checkpoint] = args;
+    if (committed && checkpoint.runId === this.runId) {
+      this.attempt = null;
+      this.jobs.markStep(this.runId, this.token, null, checkpoint.next === null);
+    }
+    return committed;
   }
 
   override async stop(...args: Parameters<DurableExecutionStore["stop"]>) {
     this.assertOwned();
-    return super.stop(...args);
+    const stopped = await super.stop(...args);
+    if (stopped && args[0] === this.runId) this.attempt = null;
+    return stopped;
   }
 }
 
@@ -152,10 +179,10 @@ export async function runMcpWorker(config: McpConfig, runId: string, token: stri
     const heartbeat = setInterval(pulse, Math.min(250, Math.floor(config.leaseMs / 3)));
     heartbeat.unref();
 
-    let store: SqliteDurableExecutionStore | undefined;
+    let store: OwnedWorkflowStore | undefined;
     try {
       assertActive();
-      store = new OwnedWorkflowStore(config, assertOwned);
+      store = new OwnedWorkflowStore(config, assertOwned, jobs, runId, token);
       const current = await store.readRun(runId);
       let checkpoint = current?.checkpoint ?? null;
       const pending = job.rerun && job.rerun.id !== checkpoint?.rerun?.id ? job.rerun : null;
@@ -177,6 +204,9 @@ export async function runMcpWorker(config: McpConfig, runId: string, token: stri
       const plan = await module.createWorkflow({
         runId, workDirectory, profile, request: job.request as Readonly<Record<string, DurableJSON>>,
         store, checkpoint, signal,
+        reportProgress(update) {
+          if (!signal.aborted) store?.reportProgress(update);
+        },
       });
       assertActive();
       if (plan?.workflow?.revision !== profile.revision) {
@@ -197,7 +227,8 @@ export async function runMcpWorker(config: McpConfig, runId: string, token: stri
       const result = await executePlan(runId, store, plan, checkpoint, profile.maxSteps, signal, assertActive);
       jobs.finish(runId, token, result.status === "running" ? "interrupted" : result.status, result.error);
     } catch (error) {
-      jobs.finish(runId, token, signal.reason === cancelled ? "cancelled" : "failed", jobError(error, "WORKER_FAILED"));
+      if (signal.reason === cancelled) jobs.finish(runId, token, "cancelled", jobError(cancelled, "CANCELLED"));
+      else jobs.finish(runId, token, "failed", jobError(error, "WORKER_FAILED"));
     } finally {
       clearInterval(heartbeat);
       store?.close();

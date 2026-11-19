@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { isNonRecoverableFailure, normalizeFailure } from "./durable-errors.js";
 import type {
   DurableArtifactRef,
   DurableCheckpoint,
+  DurableErrorCause,
   DurableErrorCode,
   DurableErrorDetails,
   DurableExecutionStore,
@@ -16,6 +18,8 @@ const sha256Pattern = /^[0-9a-f]{64}$/u;
 
 export class DurableExecutionError extends Error implements DurableErrorDetails {
   readonly code: DurableErrorCode;
+  declare readonly cause?: DurableErrorCause;
+  readonly recoverable?: boolean;
   readonly runId: string | null;
   readonly checkpointSeq: number | null;
   readonly artifactId: string | null;
@@ -27,12 +31,13 @@ export class DurableExecutionError extends Error implements DurableErrorDetails 
     this.runId = position?.runId ?? null;
     this.checkpointSeq = position?.checkpointSeq ?? null;
     this.artifactId = artifactId;
+    if (isNonRecoverableFailure(this)) this.recoverable = false;
   }
 
   toJSON(): DurableErrorDetails {
     return {
+      ...normalizeFailure(this, this.code),
       code: this.code,
-      message: this.message,
       runId: this.runId,
       checkpointSeq: this.checkpointSeq,
       artifactId: this.artifactId,

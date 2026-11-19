@@ -96,12 +96,21 @@ export type DurableErrorCode =
   | "CANCELLED"
   | "STEP_FAILED";
 
+/** Plugin-supplied diagnostics that can be persisted and shown to the caller. */
+export interface DurableErrorCause {
+  code: string;
+  message: string;
+  recoverable?: boolean;
+}
+
 export interface DurableErrorDetails {
   code: DurableErrorCode;
   message: string;
   runId: string | null;
   checkpointSeq: number | null;
   artifactId: string | null;
+  cause?: DurableErrorCause;
+  recoverable?: boolean;
 }
 
 export interface DurableRunResult {

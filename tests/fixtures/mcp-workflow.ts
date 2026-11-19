@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type {
@@ -48,7 +48,7 @@ async function snapshot(store: DurableExecutionStore, id: string, content: Durab
 }
 
 export async function createWorkflow({
-  runId, workDirectory, profile, request, store, checkpoint, signal,
+  runId, workDirectory, profile, request, store, checkpoint, signal, reportProgress,
 }: McpWorkflowContext): Promise<McpWorkflowPlan> {
   signal.throwIfAborted();
   const mode = request.mode;
@@ -56,6 +56,13 @@ export async function createWorkflow({
   if (typeof settings.controlDirectory !== "string") throw new Error("Fixture control directory is required.");
   await mkdir(workDirectory, { recursive: true });
   const controlFile = (suffix: string) => join(settings.controlDirectory, `${runId}.${suffix}`);
+  if (request.pauseResumeFactory === true && checkpoint) {
+    await writeFile(controlFile("factory.json"), JSON.stringify({ pid: process.pid }));
+    await waitForRelease(controlFile("factory-release"), signal);
+  }
+  if (mode === "files") {
+    await appendFile(join(settings.controlDirectory, "factories.jsonl"), JSON.stringify({ runId, pid: process.pid }) + "\n");
+  }
   if (mode === "generation" && checkpoint) await writeFile(controlFile("factory-resume"), "");
   const first = work("collect", profile.revision);
   const input = checkpoint?.input ?? await snapshot(store, "snapshot-1", { mode: mode ?? null, subject: request.subject ?? null });
@@ -87,6 +94,17 @@ export async function createWorkflow({
       },
       async finish(context) {
         if (mode === "fail") throw new Error("Fixture terminal failure.");
+        if (mode === "source-error") {
+          throw Object.assign(new Error("The fixture source is unreadable."), { code: "SOURCE_UNREADABLE", recoverable: false });
+        }
+        if (mode === "files") {
+          for (let completed = 1; completed <= 3; completed++) {
+            const item = `page-${completed}.jsp`;
+            await context.putArtifact("indexed-file", Buffer.from(item));
+            reportProgress({ attemptId: context.attemptId, stepKey: "finish", operation: "index", completed, total: 3, unit: "files", item });
+            if (completed < 3) await waitForRelease(controlFile("release-" + completed), context.signal);
+          }
+        }
         if (context.work.operationKey.startsWith("fixture:rerun:")) {
           const scope = context.work.scope as { sourcePaths: string[]; label: string; pause: boolean };
           if (scope.pause) await pauseFirstAttempt(context);
@@ -116,6 +134,7 @@ export async function createWorkflow({
         throw new Error("Runner must apply the input transition before calling this sentinel.");
       },
       async "finish-transition"(context: DurableStepContext) {
+        if (request.observeTransition === true) await pauseFirstAttempt(context);
         const retainedId = (context.work.cursor as { retainedId: string }).retainedId;
         const artifact = context.getArtifactRef(retainedId);
         if (!artifact) throw new Error("Transition lost the explicitly retained evidence.");
@@ -128,6 +147,26 @@ export async function createWorkflow({
       },
     },
   };
+  if (mode === "seven-stages") {
+    const stages = ["collect", "inventory", "parse", "map", "validate", "summarize", "finish"];
+    return {
+      first, input,
+      workflow: {
+        workflowKey: "seven-stage-fixture", revision: profile.revision,
+        steps: Object.fromEntries(stages.map((stage, index) => [stage, () => ({
+          outcome: { code: stage + "-complete" },
+          next: index + 1 < stages.length ? work(stages[index + 1]!, profile.revision) : null,
+        })])),
+      },
+      async prepareNext({ checkpoint: head }) {
+        if (head.generation !== 0 || head.next?.stepKey !== "map") return null;
+        return {
+          input: await snapshot(store, "snapshot-2", { additionalFile: "page-4.jsp" }),
+          affectedScope: { file: "page-4.jsp" }, reuseArtifactIds: [], next: head.next,
+        };
+      },
+    };
+  }
   return {
     workflow,
     input,

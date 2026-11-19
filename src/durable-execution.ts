@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { normalizeFailure } from "./durable-errors.js";
 import {
   copyJSON,
   DurableExecutionError,
@@ -368,19 +369,26 @@ async function stopExecution(
   cancellation: AbortSignal | undefined,
 ): Promise<DurableRunResult> {
   const status = cancellation?.aborted ? "cancelled" : "failed";
+  const failure = normalizeFailure(cause, "STEP_FAILED", "Execution stopped.");
   const error = status === "failed" && cause instanceof DurableExecutionError
     && cause.runId === checkpoint.runId && cause.checkpointSeq === checkpoint.checkpointSeq
     && (cause.code === "ARTIFACT_MISMATCH" || cause.code === "INVALID_WORK")
-    ? cause
+    ? cause.toJSON()
     : new DurableExecutionError(
       status === "cancelled" ? "CANCELLED" : "STEP_FAILED",
-      cause instanceof Error ? cause.message : hasText(cause) ? cause : "Execution stopped.",
+      failure.message,
       checkpoint,
-    );
-  if (!await store.stop(checkpoint.runId, owner, status, error.toJSON())) {
+    ).toJSON();
+  if (error.code === "STEP_FAILED") {
+    const { cause: nested, ...direct } = failure;
+    const detail = direct.code === "STEP_FAILED" ? nested : direct;
+    if (detail) error.cause = detail;
+    if (failure.recoverable !== undefined) error.recoverable = failure.recoverable;
+  }
+  if (!await store.stop(checkpoint.runId, owner, status, error)) {
     throw await conflict(store, checkpoint.runId);
   }
-  return { ...runResult(checkpoint, status), error: error.toJSON() };
+  return { ...runResult(checkpoint, status), error };
 }
 
 async function runStep(

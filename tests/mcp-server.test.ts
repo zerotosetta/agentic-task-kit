@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -159,6 +160,9 @@ function connect(path: string) {
     call<T>(name: string, args: object) {
       return request<ToolResult<T>>("tools/call", { name, arguments: args });
     },
+    discardStartResponse(args: object) {
+      write("tools/call", { name: "workflow_start", arguments: args }, ++requestId);
+    },
     cancelPendingStatus(runId: string) {
       const id = ++requestId;
       write("tools/call", { name: "workflow_status", arguments: { runId } }, id);
@@ -248,6 +252,16 @@ async function untilStatus(client: Client, runId: string, desired: Status["statu
   return observed;
 }
 
+async function untilResumable(client: Client, runId: string) {
+  let observed: Status | undefined;
+  await expect.poll(async () => {
+    observed = await status(client, runId);
+    return observed.nextAction.action;
+  }, { timeout: 20_000, interval: 100 }).toBe("resume");
+  assert.ok(observed);
+  return observed;
+}
+
 async function workerMarker<T extends { pid: number }>(fixture: Fixture, runId: string, file: string) {
   let marker: T | undefined;
   await expect.poll(async () => {
@@ -271,6 +285,63 @@ function pausedMarker(fixture: Fixture, runId: string) {
 }
 
 describe("ATK stdio MCP durable worker", () => {
+  it("recovers a lost start receipt and distinguishes productive file progress from a live heartbeat", async () => {
+    const fixture = await makeFixture();
+    const client = await openClient(fixture.configPath);
+    const args = { profile: "fixture", request: { mode: "files" }, idempotencyKey: "lost-receipt" };
+    const factories = () => readFile(join(fixture.controlDirectory, "factories.jsonl"), "utf8");
+    client.discardStartResponse(args);
+    await expect.poll(async () => {
+      try { return (await factories()).trim().length > 0; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    }, { timeout: 20_000 }).toBe(true);
+    expect(await client.disconnect()).toMatchObject({ code: 0 });
+    const reconnected = await openClient(fixture.configPath);
+    const { runId } = data(await reconnected.call<Status>("workflow_start", args));
+    const originalFactory = JSON.parse((await factories()).trim()) as { runId: string; pid: number };
+    expect(originalFactory.runId).toBe(runId);
+    pausedWorkers.add(originalFactory.pid);
+    await expect.poll(async () => (await status(reconnected, runId)).progress?.completed).toBe(1);
+    const first = await status(reconnected, runId);
+    expect(first).toMatchObject({
+      runId, status: "running", currentStep: "finish", generation: 0, checkpointSeq: 1,
+      lastCompletedStep: { stepKey: "collect", generation: 0, checkpointSeq: 1, outcome: { code: "collected" } },
+      progress: { operation: "index", stepKey: "finish", item: "page-1.jsp", total: 3, completed: 1, unit: "files" },
+      worker: { state: "alive", pid: originalFactory.pid, startedAt: expect.any(String), leaseExpiresAt: expect.any(String) },
+      nextAction: { action: "status", tool: "workflow_status", arguments: { runId } },
+    });
+    assert.ok(first.worker.heartbeatAt && first.lastProgressAt && first.progress);
+    reconnected.cancelPendingStatus(runId);
+    await expect.poll(async () => (await status(reconnected, runId)).worker.heartbeatAt).not.toBe(first.worker.heartbeatAt);
+    expect(await status(reconnected, runId)).toMatchObject({
+      cancelRequested: false, progress: first.progress, checkpointSeq: 1, lastProgressAt: first.lastProgressAt,
+    });
+    expect(await reconnected.call("workflow_resume", { runId })).toMatchObject({
+      isError: true, structuredContent: { code: "RUN_ACTIVE", message: expect.stringContaining(`workflow_status with runId "${runId}"`) },
+    });
+    await writeFile(join(fixture.controlDirectory, runId + ".release-1"), "");
+    await expect.poll(async () => (await status(reconnected, runId)).progress?.completed).toBe(2);
+    const second = await status(reconnected, runId);
+    expect(second).toMatchObject({ checkpointSeq: 1, progress: { completed: 2, item: "page-2.jsp" } });
+    expect(second.progress!.sequence).toBeGreaterThan(first.progress.sequence);
+    expect(Date.parse(second.lastProgressAt!)).toBeGreaterThan(Date.parse(first.lastProgressAt));
+    await writeFile(join(fixture.controlDirectory, runId + ".release-2"), "");
+    const done = await untilStatus(reconnected, runId, "completed");
+    expect(done).toMatchObject({
+      checkpointSeq: 2, currentStep: null, lastCompletedStep: { stepKey: "finish", checkpointSeq: 2 },
+      nextAction: { action: "results", tool: "workflow_results", arguments: { runId } },
+    });
+    expect((await factories()).trim().split("\n")).toHaveLength(1);
+    expect(await readdir(join(fixture.root, "state", "runs"))).toEqual([runId]);
+    const { checkpoints, attempts } = await rerunHistory(fixture, runId);
+    expect(checkpoints.map(c => c.checkpointSeq)).toEqual([0, 1, 2]);
+    expect(attempts.map(a => a.status)).toEqual(["committed", "committed"]);
+    pausedWorkers.delete(originalFactory.pid);
+  }, 60_000);
+
   it("keeps working across a client disconnect, deduplicates start and pages committed bytes", async () => {
     const fixture = await makeFixture();
     const client = await openClient(fixture.configPath);
@@ -293,6 +364,14 @@ describe("ATK stdio MCP durable worker", () => {
     expect(initialResults.artifacts.map(artifact => artifact.kind)).toEqual(["fixture-page"]);
     expect((await client.call("workflow_results", { runId, artifactId: marker.artifactId })).isError).toBe(true);
 
+    // The host's wait expires while the detached worker is inside the blocked stage.
+    const hostDeadline = AbortSignal.timeout(100);
+    const waitForCompletion = async () => {
+      while ((await status(client, runId)).status !== "completed") {
+        await delay(20, undefined, { signal: hostDeadline });
+      }
+    };
+    await expect(waitForCompletion()).rejects.toMatchObject({ name: "AbortError" });
     expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
     const reconnected = await openClient(fixture.configPath);
     expect(await status(reconnected, runId)).toMatchObject({
@@ -348,10 +427,13 @@ describe("ATK stdio MCP durable worker", () => {
     expect(previous).toMatchObject({ status: "running", checkpointSeq: 1, currentStep: "finish" });
     killFixtureWorker(marker.pid);
     pausedWorkers.delete(marker.pid);
+    expect(await untilStatus(client, runId, "interrupted")).toMatchObject({
+      worker: { state: "stopped", pid: marker.pid }, error: { code: "WORKER_EXITED" },
+    });
     expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
 
     const reconnected = await openClient(fixture.configPath);
-    const interrupted = await untilStatus(reconnected, runId, "interrupted");
+    const interrupted = await untilResumable(reconnected, runId);
     expect(interrupted.checkpointSeq).toBe(previous.checkpointSeq);
     const original = data(await reconnected.call<Artifacts>("workflow_results", { runId }));
     expect(original.artifacts).toHaveLength(1);
@@ -379,6 +461,10 @@ describe("ATK stdio MCP durable worker", () => {
     const { artifacts } = data(await recovered.call<Artifacts>("workflow_results", { runId }));
     expect(artifacts).toContainEqual(original.artifacts[0]);
     expect(artifacts.map(artifact => artifact.id)).not.toContain(marker.artifactId);
+    expect(await readdir(join(fixture.root, "state", "runs"))).toEqual([runId]);
+    expect((await rerunHistory(fixture, runId)).attempts.map(a => [a.work.stepKey, a.status])).toEqual([
+      ["collect", "committed"], ["finish", "interrupted"], ["finish", "committed"],
+    ]);
   }, 60_000);
 
   it("cancels executing jobs explicitly and retains the checkpoint for a later resume", async () => {
@@ -403,20 +489,55 @@ describe("ATK stdio MCP durable worker", () => {
   it("applies a plugin's checkpoint-driven input generation transition before its next work", async () => {
     const fixture = await makeFixture(1);
     const client = await openClient(fixture.configPath);
-    const { runId } = await start(client, "generation-request", "generation");
+    const { runId } = data(await client.call<Status>("workflow_start", {
+      profile: "fixture", idempotencyKey: "generation-request", request: { mode: "generation", observeTransition: true },
+    }));
     const paused = await untilStatus(client, runId, "interrupted");
     expect(paused).toMatchObject({ checkpointSeq: 1, generation: 0, currentStep: "prepare-input" });
     expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
     const reconnected = await openClient(fixture.configPath);
     data(await reconnected.call<Status>("workflow_resume", { runId, expectedCheckpointSeq: 1 }));
+    const marker = await pausedMarker(fixture, runId);
+    expect(await status(reconnected, runId)).toMatchObject({
+      checkpointSeq: 2, generation: 1, currentStep: "finish-transition",
+      lastCompletedStep: { checkpointSeq: 1, generation: 0, stepKey: "collect", outcome: { code: "collected" } },
+    });
+    await writeFile(join(fixture.controlDirectory, runId + ".release"), "");
     expect(await untilStatus(reconnected, runId, "completed")).toMatchObject({
       checkpointSeq: 3, generation: 1, domainStatus: "generation-checked",
+      lastCompletedStep: { checkpointSeq: 3, generation: 1, stepKey: "finish-transition" },
       outcome: { generation: 1, original: "page-one" },
     });
+    pausedWorkers.delete(marker.pid);
     await expect(access(join(fixture.controlDirectory, runId + ".factory-resume"))).resolves.toBeUndefined();
     await expect(access(join(fixture.controlDirectory, runId + ".prepare-next"))).resolves.toBeUndefined();
+    const { checkpoints } = await rerunHistory(fixture, runId);
+    expect(checkpoints.filter(c => c.inputChange).map(c => c.checkpointSeq)).toEqual([2]);
+    expect(checkpoints.filter(c => c.committed).map(c => c.committed!.stepKey)).toEqual(["collect", "finish-transition"]);
     const { artifacts } = data(await reconnected.call<Artifacts>("workflow_results", { runId }));
     expect(artifacts.map(artifact => artifact.kind)).toContain("fixture-page");
+  }, 60_000);
+
+  it("preserves all seven domain stage commits when an input change adds a separate checkpoint", async () => {
+    const fixture = await makeFixture(1);
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "seven-stages", "seven-stages");
+    const stages = ["collect", "inventory", "parse", "map", "validate", "summarize", "finish"];
+    const committedSeq = [1, 2, 3, 5, 6, 7, 8];
+    for (const [index, stage] of stages.entries()) {
+      const final = index === stages.length - 1;
+      const observed = await untilStatus(client, runId, final ? "completed" : "interrupted");
+      expect(observed).toMatchObject({
+        runId, checkpointSeq: committedSeq[index], domainStatus: stage + "-complete", currentStep: stages[index + 1] ?? null,
+        lastCompletedStep: { stepKey: stage, generation: index < 3 ? 0 : 1, checkpointSeq: committedSeq[index] },
+        nextAction: { action: final ? "results" : "resume" },
+      });
+      if (!final) data(await client.call<Status>("workflow_resume", observed.nextAction.arguments));
+    }
+    const { checkpoints, attempts } = await rerunHistory(fixture, runId);
+    expect(checkpoints.filter(c => c.inputChange).map(c => c.checkpointSeq)).toEqual([4]);
+    expect(checkpoints.filter(c => c.committed).map(c => c.checkpointSeq)).toEqual(committedSeq);
+    expect(attempts.map(a => [a.work.stepKey, a.status])).toEqual(stages.map(stage => [stage, "committed"]));
   }, 60_000);
 
   it("rejects a tampered committed artifact before invoking the resume factory or input transition hook", async () => {
@@ -467,12 +588,43 @@ describe("ATK stdio MCP durable worker", () => {
   it("stores a plugin failure that a new MCP connection can inspect", async () => {
     const fixture = await makeFixture();
     const client = await openClient(fixture.configPath);
-    const { runId } = await start(client, "failed-request", "fail");
+    const { runId } = data(await client.call<Status>("workflow_start", {
+      profile: "fixture", idempotencyKey: "failed-request", request: { mode: "fail", pauseResumeFactory: true },
+    }));
     const failed = await untilStatus(client, runId, "failed");
     expect(failed).toMatchObject({ checkpointSeq: 1, currentStep: "finish", error: { message: "Fixture terminal failure." } });
     expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
     const reconnected = await openClient(fixture.configPath);
     expect(await status(reconnected, runId)).toEqual(failed);
+    // This resumed worker exits before taking the durable lease. The previous failure belongs to the older attempt.
+    data(await reconnected.call<Status>("workflow_resume", { runId }));
+    const { pid } = await workerMarker(fixture, runId, "factory.json");
+    killFixtureWorker(pid);
+    pausedWorkers.delete(pid);
+    expect(await untilResumable(reconnected, runId)).toMatchObject({
+      status: "interrupted", error: { code: "WORKER_EXITED" }, checkpointSeq: 1, currentStep: "finish",
+    });
+  }, 60_000);
+
+  it("keeps the underlying nonrecoverable cause available after reconnect and rejects a repeated resume", async () => {
+    const fixture = await makeFixture();
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "source-failure", "source-error");
+    const failed = await untilStatus(client, runId, "failed");
+    const error = {
+      code: "STEP_FAILED", recoverable: false,
+      cause: { code: "SOURCE_UNREADABLE", message: "The fixture source is unreadable.", recoverable: false },
+    };
+    expect(failed).toMatchObject({
+      runId, checkpointSeq: 1, currentStep: "finish", lastCompletedStep: { stepKey: "collect", checkpointSeq: 1 },
+      error, nextAction: { action: "inspect", tool: null },
+    });
+    const before = await rerunHistory(fixture, runId);
+    expect(await client.disconnect()).toMatchObject({ code: 0 });
+    const reconnected = await openClient(fixture.configPath);
+    expect(await status(reconnected, runId)).toEqual(failed);
+    expect(await reconnected.call("workflow_resume", { runId })).toMatchObject({ isError: true, structuredContent: error });
+    expect(await rerunHistory(fixture, runId)).toEqual(before);
   }, 60_000);
 
   it("reruns the selected step of a completed run with new parameters and records its request and effective scope", async () => {
@@ -544,6 +696,7 @@ describe("ATK stdio MCP durable worker", () => {
     const running = await status(client, runId);
     expect(running).toMatchObject({
       status: "running", checkpointSeq: 3, currentStep: "finish",
+      lastCompletedStep: { stepKey: "finish", checkpointSeq: 2, outcome: { code: "verified" } },
       rerun: { expectedCheckpointSeq: 2, stepKey: "finish", scope: request.scope, params: request.params },
     });
     expect(data(await client.call<Status>("workflow_rerun", request))).toMatchObject({
@@ -553,12 +706,13 @@ describe("ATK stdio MCP durable worker", () => {
       ...request, expectedCheckpointSeq: 3, params: { label: "overlapping" },
     })).toMatchObject({ isError: true, structuredContent: { code: "RUN_ACTIVE" } });
 
+    expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
     killFixtureWorker(marker.pid);
     pausedWorkers.delete(marker.pid);
-    expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
     const recovered = await openClient(fixture.configPath);
-    expect(await untilStatus(recovered, runId, "interrupted")).toMatchObject({
+    expect(await untilResumable(recovered, runId)).toMatchObject({
       checkpointSeq: 3, currentStep: "finish", rerun: running.rerun,
+      status: "interrupted", worker: { state: "expired" }, error: { code: "WORKER_LEASE_EXPIRED" },
     });
     data(await recovered.call<Status>("workflow_resume", { runId, expectedCheckpointSeq: 3 }));
     expect(await untilStatus(recovered, runId, "completed")).toMatchObject({
@@ -596,7 +750,7 @@ describe("ATK stdio MCP durable worker", () => {
     expect(await client.disconnect(), client.diagnostics()).toMatchObject({ code: 0 });
 
     const recovered = await openClient(fixture.configPath);
-    expect(await untilStatus(recovered, runId, "interrupted")).toMatchObject({
+    expect(await untilResumable(recovered, runId)).toMatchObject({
       checkpointSeq: 2, pendingRerun: pending.pendingRerun,
     });
     await writeFile(join(fixture.controlDirectory, runId + ".accept-plan"), "");

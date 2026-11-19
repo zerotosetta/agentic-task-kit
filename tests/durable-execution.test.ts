@@ -28,10 +28,14 @@ const directories: string[] = [];
 const openStores: SqliteDurableExecutionStore[] = [];
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
-function openStore(): SqliteDurableExecutionStore {
+function temporaryDatabasePath(): string {
   const directory = mkdtempSync(join(temporaryRoot, "atk-durable-contract-"));
   directories.push(directory);
-  const store = new SqliteDurableExecutionStore(join(directory, "execution.sqlite"));
+  return join(directory, "execution.sqlite");
+}
+
+function openStore(path = temporaryDatabasePath()): SqliteDurableExecutionStore {
+  const store = new SqliteDurableExecutionStore(path);
   openStores.push(store);
   return store;
 }
@@ -344,7 +348,7 @@ describe("durable execution contract", () => {
           expect(ctx.work.cursor).toEqual(cursor);
           if (!ctx.previousAttemptId) {
             abandoned = await put(ctx, "lookup-page", "uncommitted page");
-            controller.abort(new Error("cancel after staging"));
+            controller.abort(Object.assign(new Error("cancel after staging"), { code: "STOP_REQUEST", recoverable: false }));
             return { outcome: { code: "found" }, artifacts: [abandoned], next: null };
           }
           const committed = await put(ctx, "lookup-page", "retried page");
@@ -358,6 +362,8 @@ describe("durable execution contract", () => {
       error: { code: "CANCELLED" },
       checkpoint: { committed: { operationKey: first.operationKey, outcome: { cursor } }, next: second },
     });
+    expect(cancelled.error).not.toHaveProperty("cause");
+    expect(cancelled.error).not.toHaveProperty("recoverable");
     expect(await getCheckpoint(cancelled.runId, { store })).toEqual(cancelled.checkpoint);
 
     const finished = await resumeDurable(cancelled.runId, { workflow, expectedInput: input, store });
@@ -471,6 +477,58 @@ describe("durable execution contract", () => {
     });
   });
 
+  it("keeps the durable integrity code when the active step reads a corrupt artifact", async () => {
+    const store = openStore();
+    const artifact = await put(store, "source", "original bytes");
+    const input = await snapshot(store, "integrity", [artifact]);
+    const workflow: DurableWorkflow = {
+      workflowKey: "integrity-fixture", revision,
+      steps: {
+        async read(ctx) {
+          vi.spyOn(store, "readArtifact").mockResolvedValueOnce(Buffer.from("corrupt bytes"));
+          await ctx.readArtifact(artifact);
+          return { outcome: { code: "read" }, next: null };
+        },
+      },
+    };
+    const result = await runDurable(workflow, { input, first: work("read", "read:source", null), store });
+    expect(result.error).toMatchObject({ code: "ARTIFACT_MISMATCH", artifactId: artifact.id, recoverable: false });
+    expect(result.error).not.toHaveProperty("cause");
+  });
+
+  it.each(["coded Error", "structured object", "wrapped cause"])("persists the plugin failure from a %s across reopen", async (kind) => {
+    const databasePath = temporaryDatabasePath();
+    const store = new SqliteDurableExecutionStore(databasePath);
+    const original = { code: "SNAPSHOT_RESTORE_UNAVAILABLE", message: "The pinned manifest cannot be restored.", recoverable: false };
+    const runId = "restore-failure";
+    const outerMessage = kind === "wrapped cause" ? "The step could not start." : original.message;
+    const expected = {
+      code: "STEP_FAILED", message: outerMessage, cause: original, recoverable: false,
+      runId, checkpointSeq: 0, artifactId: null,
+    };
+    try {
+      const input = await snapshot(store, "restore-fixture", []);
+      const workflow: DurableWorkflow = {
+        workflowKey: "restore-fixture", revision,
+        steps: {
+          restore() {
+            const fields = { ...original, details: { privateData: "fixture-only" } };
+            if (kind === "structured object") throw fields;
+            const error = Object.assign(new Error(original.message), fields);
+            if (kind === "wrapped cause") throw Object.assign(new Error(outerMessage, { cause: error }), { code: "STEP_FAILED" });
+            throw error;
+          },
+        },
+      };
+      const result = await runDurable(workflow, { input, first: work("restore", "restore:fixture", null), store, runId });
+      expect(result.status).toBe("failed");
+      expect(result.error).toEqual(expected);
+    } finally {
+      store.close();
+    }
+    expect((await getDurableRun(runId, { store: openStore(databasePath) }))?.error).toEqual(expected);
+  });
+
   it("records a nested durable failure at the outer attempt and allows a linked retry", async () => {
     const store = openStore();
     const input = await snapshot(store, "nested-work", []);
@@ -496,7 +554,7 @@ describe("durable execution contract", () => {
     expect(failed).toMatchObject({
       status: "failed",
       checkpoint: { checkpointSeq: 1, committed: { operationKey: first.operationKey }, next },
-      error: { code: "STEP_FAILED", runId, checkpointSeq: 1 },
+      error: { code: "STEP_FAILED", cause: { code: "RUN_NOT_FOUND", message: "Durable run was not found." }, runId, checkpointSeq: 1 },
     });
     expect(await getDurableRun(runId, { store })).toEqual(failed);
     const attempts = await getDurableAttempts(runId, { store });

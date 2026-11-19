@@ -2,12 +2,15 @@ import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type { DurableJSON, DurableRerun } from "../types/durable.js";
+import type { NormalizedFailure } from "../durable-errors.js";
+import { hasText, isRecord } from "../durable-validation.js";
+import type { DurableAttempt, DurableJSON, DurableRerun } from "../types/durable.js";
+import type { McpWorkflowProgress, McpWorkflowProgressUpdate } from "../types/mcp.js";
 
 export type McpJobStatus = "queued" | "running" | "interrupted" | "cancelled" | "failed" | "completed";
-export type McpJobError = { code: string; message: string };
+export type McpJobError = NormalizedFailure;
 
-export interface McpJob {
+interface NewJob {
   runId: string;
   profile: string;
   profileFingerprint: string;
@@ -19,6 +22,17 @@ export interface McpJob {
   cancelRequested: boolean;
   error: McpJobError | null;
   rerun: DurableRerun | null;
+}
+
+export interface McpJob extends NewJob {
+  expiresAt: number | null;
+  workerPid: number | null;
+  startedAt: string | null;
+  heartbeatAt: string | null;
+  lastProgressAt: string | null;
+  progress: McpWorkflowProgress | null;
+  /** Attempt reached by this invocation, retained on abnormal exit for error reconciliation. */
+  activeAttemptId: string | null;
 }
 
 interface JobRow {
@@ -34,11 +48,29 @@ interface JobRow {
   cancel_requested: 0 | 1;
   error_json: string | null;
   rerun_json: string | null;
+  worker_pid: number | null;
+  started_at: string | null;
+  heartbeat_at: string | null;
+  last_progress_at: string | null;
+  progress_json: string | null;
+  active_attempt_id: string | null;
 }
 
 type TerminalStatus = Exclude<McpJobStatus, "queued" | "running">;
 
 const requireBuiltin = createRequire(import.meta.url);
+
+// These columns are also added to databases created by earlier releases.
+const jobColumns = {
+  rerun_json: "TEXT",
+  worker_pid: "INTEGER",
+  started_at: "TEXT",
+  heartbeat_at: "TEXT",
+  last_progress_at: "TEXT",
+  progress_json: "TEXT",
+  progress_seq: "INTEGER NOT NULL DEFAULT 0",
+  active_attempt_id: "TEXT",
+};
 
 const schema = `
   CREATE TABLE IF NOT EXISTS atk_mcp_jobs (
@@ -53,7 +85,7 @@ const schema = `
     expires_at INTEGER,
     cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
     error_json TEXT,
-    rerun_json TEXT,
+    ${Object.entries(jobColumns).map(([name, definition]) => name + " " + definition).join(",\n    ")},
     UNIQUE (profile, idempotency_key)
   ) STRICT;
 `;
@@ -71,9 +103,50 @@ function decode(row: JobRow, now: number): McpJob {
     token: row.token,
     status: expired ? (cancelRequested ? "cancelled" : "interrupted") : row.status,
     cancelRequested,
-    error: row.error_json === null ? null : JSON.parse(row.error_json) as McpJobError,
+    error: expired && !cancelRequested ? {
+      code: "WORKER_LEASE_EXPIRED",
+      message: "The workflow launch or worker lease expired before the invocation finished.",
+      recoverable: true,
+    } : row.error_json === null ? null : JSON.parse(row.error_json) as McpJobError,
     rerun: row.rerun_json === null ? null : JSON.parse(row.rerun_json) as DurableRerun,
+    expiresAt: row.expires_at,
+    workerPid: row.worker_pid,
+    startedAt: row.started_at,
+    heartbeatAt: row.heartbeat_at,
+    lastProgressAt: row.last_progress_at,
+    progress: row.progress_json === null ? null : JSON.parse(row.progress_json) as McpWorkflowProgress,
+    activeAttemptId: row.active_attempt_id,
   };
+}
+
+const textLimits = { attemptId: 128, stepKey: 256, operation: 256, unit: 64, item: 1024, message: 1024 } as const;
+
+function progressPayload(update: McpWorkflowProgressUpdate, stepKey: string): string {
+  if (!isRecord(update) || update.stepKey !== stepKey) {
+    throw new TypeError("Progress must identify the executing step.");
+  }
+  // Copy supported scalar fields in a stable order for snapshot deduplication.
+  const payload: Record<string, string | number> = {};
+  for (const [field, limit] of Object.entries(textLimits)) {
+    const value = update[field];
+    if (value === undefined) continue;
+    if (!hasText(value) || value.length > limit) {
+      throw new TypeError(`Progress ${field} must be non-empty text of at most ${limit} characters.`);
+    }
+    payload[field] = value;
+  }
+  for (const field of ["completed", "total"] as const) {
+    const value = update[field];
+    if (value === undefined) continue;
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError(`Progress ${field} must be a nonnegative safe integer.`);
+    }
+    payload[field] = value;
+  }
+  if (update.completed !== undefined && update.total !== undefined && update.completed > update.total) {
+    throw new RangeError("Progress completed exceeds total.");
+  }
+  return JSON.stringify(payload);
 }
 
 function expiration(now: number, durationMs: number): number {
@@ -106,8 +179,9 @@ export class SqliteMcpJobStore {
       this.database.exec("PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;");
       this.transaction(() => {
         this.database.exec(schema);
-        if (!this.database.prepare("SELECT 1 FROM pragma_table_info('atk_mcp_jobs') WHERE name = 'rerun_json'").get()) {
-          this.database.exec("ALTER TABLE atk_mcp_jobs ADD COLUMN rerun_json TEXT");
+        const existing = new Set(this.database.prepare("PRAGMA table_info(atk_mcp_jobs)").all().map(row => row.name));
+        for (const [name, definition] of Object.entries(jobColumns)) {
+          if (!existing.has(name)) this.database.exec(`ALTER TABLE atk_mcp_jobs ADD COLUMN ${name} ${definition}`);
         }
       });
     } catch (error) {
@@ -131,7 +205,7 @@ export class SqliteMcpJobStore {
     return row ? decode(row, Date.now()) : null;
   }
 
-  start(job: McpJob, queueMs: number): { job: McpJob; created: boolean } {
+  start(job: NewJob, queueMs: number): { job: McpJob; created: boolean } {
     return this.transaction((now) => {
       const inserted = this.database.prepare(`
         INSERT INTO atk_mcp_jobs (
@@ -156,10 +230,11 @@ export class SqliteMcpJobStore {
   claim(runId: string, token: string, leaseMs: number): McpJob | null {
     return this.transaction((now) => {
       const row = this.database.prepare(`
-        UPDATE atk_mcp_jobs SET status = 'running', expires_at = ?
+        UPDATE atk_mcp_jobs SET status = 'running', expires_at = ?, worker_pid = ?, started_at = ?, heartbeat_at = ?
         WHERE run_id = ? AND status = 'queued' AND token = ? AND expires_at > ?
         RETURNING *
-      `).get(expiration(now, leaseMs), runId, token, now) as JobRow | undefined;
+      `).get(expiration(now, leaseMs), process.pid, new Date(now).toISOString(), new Date(now).toISOString(),
+        runId, token, now) as JobRow | undefined;
       return row ? decode(row, now) : null;
     });
   }
@@ -167,11 +242,42 @@ export class SqliteMcpJobStore {
   renew(runId: string, token: string, leaseMs: number): McpJob | null {
     return this.transaction((now) => {
       const row = this.database.prepare(`
-        UPDATE atk_mcp_jobs SET expires_at = ?
+        UPDATE atk_mcp_jobs SET expires_at = ?, heartbeat_at = ?
         WHERE run_id = ? AND status = 'running' AND token = ? AND expires_at > ?
         RETURNING *
-      `).get(expiration(now, leaseMs), runId, token, now) as JobRow | undefined;
+      `).get(expiration(now, leaseMs), new Date(now).toISOString(), runId, token, now) as JobRow | undefined;
       return row ? decode(row, now) : null;
+    });
+  }
+
+  /** A successful attempt start or checkpoint commit is itself observable work. */
+  markStep(runId: string, token: string, activeAttemptId: string | null, retainProgress = false): void {
+    this.transaction(now => {
+      this.database.prepare(`
+        UPDATE atk_mcp_jobs SET last_progress_at = ?, active_attempt_id = ?,
+          progress_json = CASE WHEN ? THEN progress_json END
+        WHERE run_id = ? AND token = ? AND status = 'running' AND expires_at > ?
+      `).run(new Date(now).toISOString(), activeAttemptId, Number(retainProgress), runId, token, now);
+    });
+  }
+
+  reportProgress(
+    runId: string, token: string,
+    attempt: Pick<DurableAttempt, "attemptId" | "work" | "generation" | "checkpointSeq">,
+    update: McpWorkflowProgressUpdate,
+  ): void {
+    if (update?.attemptId !== attempt.attemptId) return;
+    const payload = progressPayload(update, attempt.work.stepKey);
+    this.transaction(now => {
+      const at = new Date(now).toISOString();
+      this.database.prepare(`
+        UPDATE atk_mcp_jobs SET progress_seq = progress_seq + 1, last_progress_at = ?,
+          progress_json = json_set(?, '$.sequence', progress_seq + 1, '$.updatedAt', ?,
+            '$.generation', ?, '$.checkpointSeq', ?)
+        WHERE run_id = ? AND token = ? AND active_attempt_id = ?
+          AND status = 'running' AND expires_at > ? AND cancel_requested = 0
+          AND json_remove(progress_json, '$.sequence', '$.updatedAt', '$.generation', '$.checkpointSeq') IS NOT ?
+      `).run(at, payload, at, attempt.generation, attempt.checkpointSeq, runId, token, attempt.attemptId, now, payload);
     });
   }
 
@@ -194,7 +300,8 @@ export class SqliteMcpJobStore {
       const row = this.database.prepare(`
         UPDATE atk_mcp_jobs
         SET status = 'queued', token = ?, expires_at = ?, cancel_requested = 0, error_json = NULL,
-          rerun_json = COALESCE(?, rerun_json)
+          rerun_json = COALESCE(?, rerun_json), worker_pid = NULL, started_at = NULL, heartbeat_at = NULL,
+          progress_json = NULL, active_attempt_id = NULL
         WHERE run_id = ? AND token = ? AND (
           status IN ('interrupted', 'failed', 'cancelled')
           OR (? IS NOT NULL AND status = 'completed')
@@ -204,6 +311,18 @@ export class SqliteMcpJobStore {
       `).get(newToken, expiration(now, queueMs), rerun && JSON.stringify(rerun),
         runId, previousToken, rerun?.id ?? null, now) as JobRow | undefined;
       return row ? decode(row, now) : null;
+    });
+  }
+
+  /** The launching process observed this child exit without publishing a terminal result. */
+  noteExit(runId: string, token: string, error: McpJobError): boolean {
+    return this.transaction(() => {
+      const { changes } = this.database.prepare(`
+        UPDATE atk_mcp_jobs SET status = CASE WHEN cancel_requested THEN 'cancelled' ELSE 'interrupted' END,
+          expires_at = NULL, error_json = CASE WHEN cancel_requested = 0 THEN ? END
+        WHERE run_id = ? AND token = ? AND status IN ('queued', 'running')
+      `).run(JSON.stringify(error), runId, token);
+      return changes === 1;
     });
   }
 
@@ -224,7 +343,7 @@ export class SqliteMcpJobStore {
   finish(runId: string, token: string, status: TerminalStatus, error: McpJobError | null): boolean {
     return this.transaction((now) => {
       const { changes } = this.database.prepare(`
-        UPDATE atk_mcp_jobs SET status = ?, expires_at = NULL, error_json = ?
+        UPDATE atk_mcp_jobs SET status = ?, expires_at = NULL, active_attempt_id = NULL, error_json = ?
         WHERE run_id = ? AND token = ? AND expires_at > ?
           AND (status = 'running' OR (status = 'queued' AND ? = 'failed'))
       `).run(status, error === null ? null : JSON.stringify(error), runId, token, now, status);
