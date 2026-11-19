@@ -16,6 +16,8 @@ export interface McpWorkflowProfile {
   revision: string;
   settings: DurableJSON;
   maxSteps?: number;
+  /** Ordered durable step keys used to display stage positions for new runs. */
+  stageOrder?: readonly string[];
 }
 
 export interface McpWorkflowContext {
@@ -103,4 +105,20 @@ export interface McpWorkflowStatus {
   cancelRequested: boolean;
   rerun?: DurableRerun;
   pendingRerun?: DurableRerun;
+}
+
+export interface McpWorkflowProgressView extends Pick<McpWorkflowStatus,
+  "runId" | "status" | "lastCompletedStep" | "lastProgressAt" | "worker" | "error" | "cancelRequested"> {
+  nextAction: Omit<McpWorkflowStatus["nextAction"], "tool"> & {
+    tool: "workflow_progress" | "workflow_resume" | "workflow_results" | null;
+  };
+  stage: {
+    phase: "queued" | "preparing" | "executing" | "finalizing" | "interrupted" | "cancelled" | "failed" | "completed";
+    stepKey: string | null;
+    /** One-based position in the profile's declared order. */
+    position: number | null;
+    total: number | null;
+  };
+  /** Most recent applicable report, with a percentage of this operation when counts are available. */
+  detail: (McpWorkflowProgress & { percent: number | null }) | null;
 }

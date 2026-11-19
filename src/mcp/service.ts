@@ -6,7 +6,7 @@ import { isNonRecoverableFailure } from "../durable-errors.js";
 import { SqliteDurableExecutionStore } from "../durable-store.js";
 import { copyJSON, hasText, isRecord } from "../durable-validation.js";
 import type { DurableCheckpoint, DurableJSON, DurableRerun, DurableRunResult } from "../types/durable.js";
-import type { McpWorkflowStatus } from "../types/mcp.js";
+import type { McpWorkflowProgressView, McpWorkflowStatus } from "../types/mcp.js";
 import { jsonFingerprint, McpWorkflowError, profileFingerprint, type McpConfig } from "./config.js";
 import { SqliteMcpJobStore, type McpJob, type McpJobError } from "./job-store.js";
 import { readResults } from "./results.js";
@@ -151,6 +151,37 @@ function formatStatus(
   };
 }
 
+function progressPhase(status: McpWorkflowStatus, job: McpJob, durableAttemptId: string | null): McpWorkflowProgressView["stage"]["phase"] {
+  if (status.status !== "running") return status.status;
+  if (status.pendingRerun || status.checkpointSeq === null) return "preparing";
+  if (status.currentStep === null) return "finalizing";
+  return durableAttemptId !== null && job.activeAttemptId === durableAttemptId ? "executing" : "preparing";
+}
+
+function formatProgress(status: McpWorkflowStatus, job: McpJob, durableAttemptId: string | null): McpWorkflowProgressView {
+  const stepKey = status.status === "completed" ? null : status.currentStep;
+  const index = stepKey !== null ? job.stageOrder?.indexOf(stepKey) : undefined;
+  const report = status.progress;
+  const percent = report?.completed !== undefined && report.total !== undefined && report.total > 0
+    ? Number(BigInt(report.completed) * 100n / BigInt(report.total)) : null;
+  return {
+    runId: status.runId, status: status.status, cancelRequested: status.cancelRequested,
+    stage: {
+      phase: progressPhase(status, job, durableAttemptId), stepKey,
+      position: index !== undefined && index >= 0 ? index + 1 : null, total: job.stageOrder?.length ?? null,
+    },
+    lastCompletedStep: status.lastCompletedStep,
+    detail: report && { ...report, percent },
+    lastProgressAt: status.lastProgressAt,
+    worker: status.worker,
+    nextAction: {
+      ...status.nextAction,
+      tool: status.nextAction.tool === "workflow_status" ? "workflow_progress" : status.nextAction.tool,
+    },
+    error: status.error,
+  };
+}
+
 export class McpWorkflowService {
   private readonly jobs: SqliteMcpJobStore;
   private readonly execution: SqliteDurableExecutionStore;
@@ -182,6 +213,11 @@ export class McpWorkflowService {
       case "workflow_status":
         knownArguments(args, ["runId"]);
         return this.status(stringArg(args, "runId", 128));
+      case "workflow_progress": {
+        knownArguments(args, ["runId"]);
+        const { status, job, durableAttemptId } = await this.readStatus(stringArg(args, "runId", 128));
+        return formatProgress(status, job, durableAttemptId);
+      }
       case "workflow_resume":
         knownArguments(args, ["runId", "expectedCheckpointSeq", "expectedInputSha256"]);
         return this.resume(args, signal);
@@ -215,14 +251,19 @@ export class McpWorkflowService {
   }
 
   private async status(runId: string): Promise<McpWorkflowStatus> {
+    return (await this.readStatus(runId)).status;
+  }
+
+  private async readStatus(runId: string) {
     // The worker commits durable state before publishing its terminal job status.
     const job = this.requireJob(runId);
-    const run = await this.execution.readRun(runId);
+    const head = this.execution.readRunWithActiveAttempt(runId);
+    const run = head?.run ?? null;
     let checkpoint = run?.checkpoint;
     while (checkpoint && !checkpoint.committed && checkpoint.previousCheckpointSeq !== null) {
       checkpoint = await this.execution.readCheckpoint(runId, checkpoint.previousCheckpointSeq) ?? undefined;
     }
-    return formatStatus(job, run, checkpoint);
+    return { job, status: formatStatus(job, run, checkpoint), durableAttemptId: head?.activeAttemptId ?? null };
   }
 
   private async start(args: Arguments, signal: AbortSignal): Promise<McpWorkflowStatus> {
@@ -244,6 +285,7 @@ export class McpWorkflowService {
     signal.throwIfAborted();
     const { job, created } = this.jobs.start({
       runId: randomUUID(), profile: profileName, profileFingerprint: pinned,
+      ...(profile.stageOrder && { stageOrder: profile.stageOrder }),
       request, requestFingerprint, idempotencyKey, token: randomUUID(),
       status: "queued", cancelRequested: false, error: null, rerun: null,
     }, this.config.queueMs);

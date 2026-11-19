@@ -18,7 +18,10 @@ export function requirePinnedProfile(config: McpConfig, job: McpJob): McpWorkflo
   const profile = config.profiles.get(job.profile);
   if (profile) {
     try {
-      if (profileFingerprint(profile) === job.profileFingerprint) return profile;
+      if (profileFingerprint(profile) === job.profileFingerprint) {
+        const { stageOrder: _configuredOrder, ...pinned } = profile;
+        return job.stageOrder === null ? pinned : { ...pinned, stageOrder: job.stageOrder };
+      }
     } catch {
       // A removed or unreadable registered module also breaks the profile pin.
     }

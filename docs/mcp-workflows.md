@@ -30,7 +30,7 @@ Node.js로 직접 실행할 때는 설치된 패키지의 `dist/atk-mcp.js`를 �
 
 플러그인의 `createWorkflow({runId, workDirectory, profile, request, store, checkpoint, signal, reportProgress})`은 `{workflow, input, first, prepareNext?}`를 반환합니다. 타입은 패키지의 `McpWorkflowFactory`, `McpWorkflowContext`, `McpWorkflowPlan`에서 가져올 수 있습니다. 기존 플러그인은 추가된 `reportProgress`를 사용하지 않아도 동작합니다.
 
-- `profile`의 필드는 `name`, 정규화한 절대 `module` 경로, `revision`, `settings`, 선택적 `maxSteps`입니다. `workflow.revision`은 등록한 리비전과 같아야 합니다.
+- `profile`의 필드는 `name`, 정규화한 절대 `module` 경로, `revision`, `settings`, 선택적 `maxSteps`와 `stageOrder`입니다. `workflow.revision`은 등록한 리비전과 같아야 합니다.
 - 최초 호출의 `checkpoint`는 `null`입니다. 플러그인이 입력 manifest의 원본 바이트와 입력 산출물을 저장하고 `SnapshotInput`과 첫 작업을 반환합니다. 재개 시에는 같은 작업 디렉터리와 요청으로 팩토리를 다시 호출합니다. 재개 팩토리는 외부 입력의 동일성을 확인하고 현재 체크포인트와 일치하는 `input`을 반환합니다.
 - 선택적 `prepareNext({checkpoint, signal})`는 첫 작업 커밋 이후와 재개 진입 시, 다음 작업이 있을 때 호출합니다. 새 입력이 필요하면 `{input, affectedScope, reuseArtifactIds, next}`를 반환합니다. 실행기가 `advanceInput`으로 현재 순번을 비교해 새 세대를 커밋합니다. 전환이 필요 없는 경우에는 `null` 또는 `undefined`를 반환합니다. 재실행 시에도 체크포인트와 커밋된 산출물에서 전환 계획을 다시 계산할 수 있어야 합니다.
 - 선택적 `planRerun({checkpoint, request, signal})`는 지정된 단계, 범위, 파라미터를 검증한 뒤 해당 단계의 `DurableWork`를 반환합니다. `request`의 필드는 `id`, `expectedCheckpointSeq`, `stepKey`, `scope`, `params`입니다. 변경된 파라미터가 작업의 동작과 캐시 판정에 반영되도록 다음 작업에 포함합니다. 플러그인이 종료 또는 후속 단계를 결정합니다.
@@ -82,12 +82,54 @@ export async function createWorkflow({ runId, profile, request, store, checkpoin
 | --- | --- | --- |
 | `workflow_start` | `{profile, request, idempotencyKey}` | 작업 완료를 기다리지 않고 `runId`와 현재 상태를 반환합니다. 같은 프로필·키·요청은 기존 실행을 반환합니다. 같은 키에 다른 요청을 전달하면 `IDEMPOTENCY_CONFLICT`가 발생합니다. |
 | `workflow_status` | `{runId}` | 기존 실행·체크포인트 필드와 `lastCompletedStep`, `progress`, `lastProgressAt`, `worker`, `nextAction`을 반환합니다. `currentStep`은 다음 작업의 단계이며 도메인 상태는 마지막으로 커밋한 작업 결과에서 가져옵니다. |
+| `workflow_progress` | `{runId}` | 현재 단계 키·순번·실행 여부, 최근 작업의 처리량·백분율, 마지막 완료 단계와 진척 시각을 반환하는 읽기 전용 조회입니다. |
 | `workflow_resume` | `{runId, expectedCheckpointSeq?, expectedInputSha256?}` | 중단·취소·실패 실행을 다시 예약합니다. 제공한 순번과 입력 해시를 비교하며, 고정 프로필 및 저장된 아티팩트의 무결성을 검증합니다. |
 | `workflow_rerun` | `{runId, expectedCheckpointSeq, stepKey, scope?, params?}` | 완료되었거나 실행 중이 아닌 작업에 지정 단계 재실행을 예약합니다. `scope`와 `params`는 JSON 객체입니다. 등록 플러그인의 `planRerun`이 대상과 지원 파라미터를 검사합니다. |
 | `workflow_cancel` | `{runId}` | 실행 취소를 저장하고 작업의 `AbortSignal`에 전달합니다. 처리 중인 작업은 콜백이 취소에 응답할 때까지 `running`과 `cancelRequested: true`로 보일 수 있습니다. |
 | `workflow_results` | `{runId, artifactId?, cursor?, maxBytes?}` | `artifactId`가 없으면 `{runId, checkpointSeq, artifacts, nextCursor}`를, 있으면 `{runId, checkpointSeq, artifact, offset, totalBytes, data, nextCursor}`를 반환합니다. |
 
 `status` 값의 범위는 `queued`, `running`, `interrupted`, `cancelled`, `failed`, `completed`입니다. 결과의 아티팩트 참조는 `{kind,id,sha256}`이며, 커밋된 아티팩트만 조회할 수 있습니다. 콘텐츠 응답의 `data`는 base64입니다. `maxBytes`는 목록에 대해서는 구조화 JSON 바이트, 콘텐츠에 대해서는 디코딩한 조각 바이트를 제한합니다. 기본값은 65,536이며 최댓값은 262,144입니다. 다음 응답을 받으려면 `nextCursor`를 동일한 실행과 아티팩트 선택으로 전달합니다. 커서는 첫 페이지의 체크포인트에 고정됩니다. 각 콘텐츠 조각에 전체 아티팩트의 동일한 SHA-256이 붙습니다. 도구 오류는 MCP의 `isError`와 `{code,message}`로 전달합니다.
+
+## workflow_progress
+
+`workflow_start`가 반환한 `runId`로 다음 MCP 요청을 보냅니다. 재접속한 클라이언트도 같은 설정과 저장 경로에서 같은 실행을 조회할 수 있습니다. 응답 타입은 패키지에서 `McpWorkflowProgressView`로 가져올 수 있습니다.
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"workflow_progress","arguments":{"runId":"<runId>"}}}
+```
+
+다음은 프로필에 일곱 단계를 선언하고 두 번째 단계에서 파일 3개 중 2개를 처리한 경우의 응답 발췌입니다.
+
+```json
+{
+  "status": "running",
+  "stage": { "phase": "executing", "stepKey": "discover", "position": 2, "total": 7 },
+  "detail": { "stepKey": "discover", "operation": "analyze-file", "completed": 2, "total": 3, "unit": "files", "item": "page-2.jsp", "sequence": 2, "percent": 66 }
+}
+```
+
+| 확인할 내용 | 응답 필드와 해석 |
+| --- | --- |
+| 현재 단계 | `stage.stepKey`는 현재 또는 예약된 단계 키입니다. `stage.phase`가 `executing`이면 현재 체크포인트에서 그 단계의 실행 시도를 확인한 상태입니다. |
+| 실행 전후 | `queued`는 작업자 시작 대기, `preparing`은 초기화·계획 또는 다음 시도 준비, `finalizing`은 마지막 커밋 후 종료 상태를 기록하는 구간입니다. `interrupted`, `cancelled`, `failed`, `completed`는 실행 결과입니다. 완료 시 현재 단계 키와 순번은 `null`입니다. |
+| 단계 순번 | `stage.position`은 프로필의 `stageOrder`에서 찾은 1부터 시작하는 순번이고 `stage.total`은 선언한 단계 수입니다. 분기·반복·재실행이 있는 경우에도 같은 단계 키는 같은 순번입니다. 선언 밖 단계의 순번, 순서 설정이 없는 실행의 두 값은 `null`입니다. |
+| 단계 안의 진척 | `detail`은 최근 `reportProgress` 스냅샷입니다. `operation`, `item`, `message`, `completed`, `total`, `unit`은 플러그인이 제공한 필드만 표시됩니다. `percent`는 해당 작업의 `completed × 100 / total`을 내린 정수입니다. 한쪽 건수가 없거나 전체가 0이면 `null`입니다. |
+| 마지막 보고와 생존 여부 | `detail.updatedAt`은 해당 보고 시각, `lastProgressAt`은 단계 진입·커밋 또는 진척 변경 시각, `worker.heartbeatAt`은 작업자의 임대 갱신 시각입니다. 세부 보고가 없으면 `detail`은 `null`이며 단계와 작업자 상태는 계속 조회됩니다. |
+| 취소·중단·완료 확인 | `cancelRequested`는 작업자가 취소를 처리하는 동안에도 요청 접수 여부를 보여줍니다. `lastCompletedStep`은 마지막으로 커밋한 단계입니다. 종료 때 남은 `detail`은 마지막 관측값입니다. `error`로 실패 사유를 확인하고 `nextAction`의 도구와 인수를 따릅니다. |
+
+프로필에 순번을 표시하려면 설정 파일의 해당 `profiles` 항목에 다음과 같이 `stageOrder`를 추가합니다.
+
+```json
+{
+  "module": "./workflow.mjs",
+  "revision": "analysis-v1",
+  "stageOrder": ["collect", "discover", "parse", "map", "validate", "summarize", "publish"]
+}
+```
+
+단계 키는 플러그인의 `work.stepKey`와 정확히 일치해야 합니다. 1~256개의 고유한 키를 선언할 수 있고 키당 최대 길이는 256자입니다. 서버가 실행을 처음 등록할 때 순서를 저장하므로 설정 변경은 이후 새 실행부터 반영됩니다. 과거에 순서를 저장하지 않은 실행도 단계 키로 조회할 수 있습니다.
+
+처리 중에는 `nextAction.tool`이 `workflow_progress`인 동안 `retryAfterMs` 후 같은 인수로 다시 조회합니다. 이 도구는 호출 시점의 최신 보고를 반환하므로 두 번 조회하는 사이에 여러 항목이 처리되면 마지막 항목이 보입니다. 파일이나 레코드 단위의 건수를 제공하려면 플러그인의 처리 지점에서 `reportProgress`를 호출합니다. [플러그인 보고 예제](#단계-안의-진척과-생존-신호)
 
 ## 재연결과 중단 복구
 
@@ -101,12 +143,12 @@ stdio 연결을 닫거나 MCP 서버를 종료해도 분리된 작업 프로세�
 
 ## 단계 안의 진척과 생존 신호
 
-다음 필드는 체크포인트를 추가하거나 플러그인의 단계 번호를 변경하지 않습니다. 단계 번호가 필요하면 플러그인이 마지막 작업의 `outcome`에 저장한 값을 사용합니다. `checkpointSeq`는 입력 전환·재실행 계획 커밋도 포함하므로 완료 단계 수로 해석하지 않습니다.
+다음은 `workflow_status`의 필드입니다. 현재 단계의 선언된 순번은 `workflow_progress`의 `stage.position`에서 확인합니다. 플러그인이 마지막으로 완료한 단계의 결과는 `lastCompletedStep.outcome`에 있습니다. `checkpointSeq`는 입력 전환·재실행 계획 커밋을 포함한 체크포인트 순번입니다.
 
 | 필드 | 의미 |
 | --- | --- |
 | `lastCompletedStep` | 마지막 작업 커밋의 `{stepKey, checkpointSeq, generation, outcome}` 또는 `null`. 입력 전환 뒤에도 직전 실제 작업을 가리킵니다. |
-| `currentStep` | 현재 헤드가 예약한 다음 단계. 실행 중에는 처리 중인 단계입니다. |
+| `currentStep` | 현재 헤드가 예약한 단계 또는 재실행을 요청한 단계. 실제 실행 시도의 시작 여부는 `workflow_progress`의 `stage.phase`로 확인합니다. |
 | `progress` | 현재 작업의 플러그인 진척. `attemptId`, `stepKey`, 선택적 `operation`, `completed`, `total`, `unit`, `item`, `message`와 ATK가 기록한 `sequence`, `updatedAt`, `generation`, `checkpointSeq`. 보고하지 않은 플러그인은 `null`입니다. |
 | `lastProgressAt` | 단계 진입·커밋 또는 변경된 진척 보고 시각. 같은 값의 재보고와 heartbeat는 갱신하지 않습니다. |
 | `worker` | `{state, pid, startedAt, heartbeatAt, leaseExpiresAt}`. state는 `starting`, `alive`, `expired`, `stopped`입니다. heartbeat는 임대 갱신을 뜻하며 파일 분석·업무 처리 완료의 증거가 아닙니다. |

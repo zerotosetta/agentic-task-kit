@@ -10,6 +10,7 @@ export type {
   McpWorkflowProfile,
   McpWorkflowProgress,
   McpWorkflowProgressUpdate,
+  McpWorkflowProgressView,
   McpWorkflowRerunRequest,
   McpWorkflowStatus,
 } from "./types/mcp.js";

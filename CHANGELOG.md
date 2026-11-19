@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Add the read-only MCP tool `workflow_progress` for stage phase, configured stage position, and the latest operation's counts and percentage. Each run keeps the stage order supplied at registration.
+
 - Report MCP workflow progress separately from worker heartbeats, preserve the last committed step and failure cause, and guide reconnect/resume actions without changing durable checkpoint semantics.
 
 - Add a configurable session-based WebChat provider, low-level session/message operations, serialized session reuse, and buffered JSON completion.

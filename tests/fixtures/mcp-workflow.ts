@@ -97,6 +97,13 @@ export async function createWorkflow({
         if (mode === "source-error") {
           throw Object.assign(new Error("The fixture source is unreadable."), { code: "SOURCE_UNREADABLE", recoverable: false });
         }
+        if (mode === "enumerate") {
+          const report = { attemptId: context.attemptId, stepKey: context.work.stepKey, operation: "enumerate" };
+          reportProgress(report);
+          await waitForRelease(controlFile("count-files"), context.signal);
+          reportProgress({ ...report, completed: 0, total: 0, unit: "files" });
+          await pauseFirstAttempt(context);
+        }
         if (mode === "files") {
           for (let completed = 1; completed <= 3; completed++) {
             const item = `page-${completed}.jsp`;

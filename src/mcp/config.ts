@@ -29,6 +29,14 @@ function duration(value: unknown, fallback: number, field: string): number {
   return value;
 }
 
+function parseStageOrder(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 256 ||
+      !value.every((key: unknown) => hasText(key) && key.length <= 256) || new Set(value).size !== value.length) {
+    throw new McpWorkflowError("INVALID_CONFIG", "Profile stageOrder must contain 1 to 256 unique, nonblank step keys of at most 256 characters each.");
+  }
+  return Object.freeze(value);
+}
+
 export function loadMcpConfig(configPath: string): McpConfig {
   configPath = resolve(configPath);
   const config: unknown = JSON.parse(readFileSync(configPath, "utf8").replace(/^\uFEFF/u, ""));
@@ -52,6 +60,7 @@ export function loadMcpConfig(configPath: string): McpConfig {
       revision: value.revision,
       settings: value.settings === undefined ? {} : copyJSON(value.settings, null, "Profile settings", "INVALID_INPUT"),
       ...(maxSteps === undefined ? {} : { maxSteps }),
+      ...(value.stageOrder === undefined ? {} : { stageOrder: parseStageOrder(value.stageOrder) }),
     });
   }
   if (!profiles.size) throw new McpWorkflowError("INVALID_CONFIG", "Register at least one workflow profile.");

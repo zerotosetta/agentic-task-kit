@@ -61,6 +61,7 @@ interface RunHead {
 
 interface RunRow {
   status: DurableStatus;
+  active_attempt_id: string | null;
   error_json: string | null;
   lease_expires_at: number | null;
   checkpoint_json: string;
@@ -126,8 +127,13 @@ export class SqliteDurableExecutionStore implements DurableExecutionStore {
   }
 
   async readRun(runId: string): Promise<DurableRunResult | null> {
+    return this.readRunWithActiveAttempt(runId)?.run ?? null;
+  }
+
+  /** Read the lease, active attempt and checkpoint from a single SQLite snapshot. */
+  readRunWithActiveAttempt(runId: string): { run: DurableRunResult; activeAttemptId: string | null } | null {
     const row = this.database.prepare(`
-      SELECT r.status, r.error_json, r.lease_expires_at, c.checkpoint_json
+      SELECT r.status, r.active_attempt_id, r.error_json, r.lease_expires_at, c.checkpoint_json
       FROM atk_durable_runs r JOIN atk_durable_checkpoints c USING (run_id, checkpoint_seq)
       WHERE r.run_id = ?
     `).get(runId) as RunRow | undefined;
@@ -136,10 +142,13 @@ export class SqliteDurableExecutionStore implements DurableExecutionStore {
       ? "interrupted"
       : row.status;
     return {
-      runId,
-      status,
-      checkpoint: JSON.parse(row.checkpoint_json) as DurableCheckpoint,
-      error: row.error_json === null ? null : JSON.parse(row.error_json) as DurableErrorDetails,
+      run: {
+        runId,
+        status,
+        checkpoint: JSON.parse(row.checkpoint_json) as DurableCheckpoint,
+        error: row.error_json === null ? null : JSON.parse(row.error_json) as DurableErrorDetails,
+      },
+      activeAttemptId: status === "running" ? row.active_attempt_id : null,
     };
   }
 

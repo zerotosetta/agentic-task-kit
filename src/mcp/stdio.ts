@@ -40,6 +40,9 @@ const tools = [
   tool("workflow_status", "Poll the same run ID for its committed checkpoint, current work, progress, worker heartbeat and next action.", {
     runId: requiredString,
   }, ["runId"], { readOnlyHint: true }),
+  tool("workflow_progress", "Read the current stage, its configured position, and the latest reported operation, item, counts and percentage for a run.", {
+    runId: requiredString,
+  }, ["runId"], { readOnlyHint: true }),
   tool("workflow_resume", "Schedule another invocation for an interrupted, cancelled, or failed run.", {
     runId: requiredString,
     expectedCheckpointSeq: { type: "integer", minimum: 0 },

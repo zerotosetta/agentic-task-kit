@@ -14,6 +14,7 @@ interface NewJob {
   runId: string;
   profile: string;
   profileFingerprint: string;
+  stageOrder?: readonly string[] | null;
   request: DurableJSON;
   requestFingerprint: string;
   idempotencyKey: string;
@@ -25,6 +26,7 @@ interface NewJob {
 }
 
 export interface McpJob extends NewJob {
+  stageOrder: readonly string[] | null;
   expiresAt: number | null;
   workerPid: number | null;
   startedAt: string | null;
@@ -39,6 +41,7 @@ interface JobRow {
   run_id: string;
   profile: string;
   profile_fingerprint: string;
+  stage_order_json: string | null;
   request_json: string;
   request_fingerprint: string;
   idempotency_key: string;
@@ -62,6 +65,7 @@ const requireBuiltin = createRequire(import.meta.url);
 
 // These columns are also added to databases created by earlier releases.
 const jobColumns = {
+  stage_order_json: "TEXT",
   rerun_json: "TEXT",
   worker_pid: "INTEGER",
   started_at: "TEXT",
@@ -97,6 +101,7 @@ function decode(row: JobRow, now: number): McpJob {
     runId: row.run_id,
     profile: row.profile,
     profileFingerprint: row.profile_fingerprint,
+    stageOrder: row.stage_order_json === null ? null : JSON.parse(row.stage_order_json) as readonly string[],
     request: JSON.parse(row.request_json) as DurableJSON,
     requestFingerprint: row.request_fingerprint,
     idempotencyKey: row.idempotency_key,
@@ -210,13 +215,14 @@ export class SqliteMcpJobStore {
       const inserted = this.database.prepare(`
         INSERT INTO atk_mcp_jobs (
           run_id, profile, profile_fingerprint, request_json, request_fingerprint, idempotency_key, token,
-          status, expires_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+          status, expires_at, stage_order_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
         ON CONFLICT (profile, idempotency_key) DO NOTHING
         RETURNING *
       `).get(
         job.runId, job.profile, job.profileFingerprint, JSON.stringify(job.request), job.requestFingerprint,
         job.idempotencyKey, job.token, expiration(now, queueMs),
+        job.stageOrder == null ? null : JSON.stringify(job.stageOrder),
       ) as JobRow | undefined;
       if (inserted) return { job: decode(inserted, now), created: true };
 

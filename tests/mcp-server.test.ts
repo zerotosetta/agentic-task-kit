@@ -11,7 +11,7 @@ import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { SqliteDurableExecutionStore } from "../src/durable-store.js";
 import { evidenceBytes } from "./fixtures/mcp-workflow.js";
-import type { McpWorkflowStatus as Status } from "../src/types/mcp.js";
+import type { McpWorkflowProgressView, McpWorkflowStatus as Status } from "../src/types/mcp.js";
 
 type Artifact = { id: string; kind: string; sha256: string };
 type Artifacts = { runId: string; checkpointSeq: number; artifacts: Artifact[]; nextCursor: string | null };
@@ -176,15 +176,15 @@ function connect(path: string) {
   };
 }
 
-async function openClient(configPath: string) {
+async function openClient(configPath: string, protocolVersion = "2025-06-18") {
   const client = connect(configPath);
   clients.push(client);
   const handshake = await client.request<{ protocolVersion: string }>("initialize", {
-    protocolVersion: "2025-06-18",
+    protocolVersion,
     clientInfo: { name: "atk-test-client", version: "1" },
     capabilities: {},
   });
-  expect(handshake.protocolVersion).toBe("2025-06-18");
+  expect(handshake.protocolVersion).toBe(protocolVersion);
   client.notify("notifications/initialized", {});
   return client;
 }
@@ -197,7 +197,7 @@ async function makeFixture(maxSteps?: number) {
   const modulePath = join(root, "workflow.mjs");
   await mkdir(controlDirectory);
   await copyFile(pluginPath, modulePath);
-  async function configure(version = revision) {
+  async function configure(version = revision, stageOrder?: string[]) {
     await writeFile(configPath, JSON.stringify({
       stateDirectory: "./state",
       leaseMs: 3_000,
@@ -206,6 +206,7 @@ async function makeFixture(maxSteps?: number) {
         revision: version,
         settings: { controlDirectory },
         ...(maxSteps === undefined ? {} : { maxSteps }),
+        ...(stageOrder === undefined ? {} : { stageOrder }),
       } },
     }), "utf8");
   }
@@ -228,6 +229,13 @@ async function start(client: Client, idempotencyKey: string, mode: string) {
 
 async function status(client: Client, runId: string) {
   return data(await client.call<Status>("workflow_status", { runId }));
+}
+
+async function progress(client: Client, runId: string) {
+  const result = await client.call<McpWorkflowProgressView>("workflow_progress", { runId });
+  const view = data(result);
+  expect(JSON.parse(result.content[0]!.text)).toEqual(view);
+  return view;
 }
 
 async function rerunHistory(fixture: Fixture, runId: string) {
@@ -285,8 +293,28 @@ function pausedMarker(fixture: Fixture, runId: string) {
 }
 
 describe("ATK stdio MCP durable worker", () => {
+  it("leaves percentages unknown for missing or empty counts, and leaves an unlisted stage unnumbered", async () => {
+    const fixture = await makeFixture();
+    await fixture.configure(revision, ["collect"]);
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "enumerate-files", "enumerate");
+    await expect.poll(() => progress(client, runId), { timeout: 20_000 }).toMatchObject({
+      stage: { phase: "executing", stepKey: "finish", position: null, total: 1 },
+      detail: { operation: "enumerate", percent: null },
+    });
+    await writeFile(join(fixture.controlDirectory, runId + ".count-files"), "");
+    const marker = await pausedMarker(fixture, runId);
+    expect(await progress(client, runId)).toMatchObject({
+      detail: { operation: "enumerate", completed: 0, total: 0, unit: "files", percent: null },
+    });
+    await writeFile(join(fixture.controlDirectory, runId + ".release"), "");
+    await untilStatus(client, runId, "completed");
+    pausedWorkers.delete(marker.pid);
+  }, 60_000);
+
   it("recovers a lost start receipt and distinguishes productive file progress from a live heartbeat", async () => {
     const fixture = await makeFixture();
+    await fixture.configure(revision, ["collect", "finish"]);
     const client = await openClient(fixture.configPath);
     const args = { profile: "fixture", request: { mode: "files" }, idempotencyKey: "lost-receipt" };
     const factories = () => readFile(join(fixture.controlDirectory, "factories.jsonl"), "utf8");
@@ -314,6 +342,22 @@ describe("ATK stdio MCP durable worker", () => {
       nextAction: { action: "status", tool: "workflow_status", arguments: { runId } },
     });
     assert.ok(first.worker.heartbeatAt && first.lastProgressAt && first.progress);
+    expect(await progress(reconnected, runId)).toMatchObject({
+      runId, status: "running", stage: { phase: "executing", stepKey: "finish", position: 2, total: 2 },
+      lastCompletedStep: first.lastCompletedStep, detail: { ...first.progress, percent: 33 },
+      lastProgressAt: first.lastProgressAt, worker: { state: "alive", pid: originalFactory.pid }, error: null,
+      nextAction: { action: "status", tool: "workflow_progress", arguments: { runId } },
+    });
+    // A second client must see the numbering registered at start, even after the profile is edited.
+    await fixture.configure(revision, ["finish", "collect", "archive"]);
+    const legacy = await openClient(fixture.configPath, "2025-03-26");
+    const legacyResult = await legacy.call<McpWorkflowProgressView>("workflow_progress", { runId });
+    expect(legacyResult.isError).toBe(false);
+    expect(legacyResult).not.toHaveProperty("structuredContent");
+    expect(JSON.parse(legacyResult.content[0]!.text)).toMatchObject({
+      runId, stage: { phase: "executing", stepKey: "finish", position: 2, total: 2 },
+      detail: { ...first.progress, percent: 33 },
+    });
     reconnected.cancelPendingStatus(runId);
     await expect.poll(async () => (await status(reconnected, runId)).worker.heartbeatAt).not.toBe(first.worker.heartbeatAt);
     expect(await status(reconnected, runId)).toMatchObject({
@@ -327,12 +371,17 @@ describe("ATK stdio MCP durable worker", () => {
     const second = await status(reconnected, runId);
     expect(second).toMatchObject({ checkpointSeq: 1, progress: { completed: 2, item: "page-2.jsp" } });
     expect(second.progress!.sequence).toBeGreaterThan(first.progress.sequence);
+    expect((await progress(reconnected, runId)).detail).toEqual({ ...second.progress, percent: 66 });
     expect(Date.parse(second.lastProgressAt!)).toBeGreaterThan(Date.parse(first.lastProgressAt));
     await writeFile(join(fixture.controlDirectory, runId + ".release-2"), "");
     const done = await untilStatus(reconnected, runId, "completed");
     expect(done).toMatchObject({
       checkpointSeq: 2, currentStep: null, lastCompletedStep: { stepKey: "finish", checkpointSeq: 2 },
       nextAction: { action: "results", tool: "workflow_results", arguments: { runId } },
+    });
+    expect(await progress(reconnected, runId)).toMatchObject({
+      runId, status: "completed", stage: { phase: "completed", stepKey: null, position: null, total: 2 },
+      lastCompletedStep: done.lastCompletedStep, nextAction: done.nextAction, error: null,
     });
     expect((await factories()).trim().split("\n")).toHaveLength(1);
     expect(await readdir(join(fixture.root, "state", "runs"))).toEqual([runId]);
@@ -347,8 +396,18 @@ describe("ATK stdio MCP durable worker", () => {
     const client = await openClient(fixture.configPath);
     const listed = await client.request<{ tools: Array<{ name: string }> }>("tools/list", {});
     expect(listed.tools.map(tool => tool.name).sort()).toEqual([
-      "workflow_cancel", "workflow_rerun", "workflow_results", "workflow_resume", "workflow_start", "workflow_status",
+      "workflow_cancel", "workflow_progress", "workflow_rerun", "workflow_results", "workflow_resume", "workflow_start", "workflow_status",
     ]);
+    expect(listed.tools.find(tool => tool.name === "workflow_progress")).toMatchObject({
+      annotations: { readOnlyHint: true },
+      inputSchema: { properties: { runId: { type: "string", minLength: 1 } }, required: ["runId"], additionalProperties: false },
+    });
+    expect(await client.call("workflow_progress", { runId: "missing" })).toMatchObject({
+      isError: true, structuredContent: { code: "RUN_NOT_FOUND" },
+    });
+    expect(await client.call("workflow_progress", { runId: "missing", extra: true })).toMatchObject({
+      isError: true, structuredContent: { code: "INVALID_ARGUMENT" },
+    });
 
     const { runId } = await start(client, "same-request", "wait");
     expect((await start(client, "same-request", "wait")).runId).toBe(runId);
@@ -359,6 +418,9 @@ describe("ATK stdio MCP durable worker", () => {
     const marker = await pausedMarker(fixture, runId);
     expect(await status(client, runId)).toMatchObject({
       status: "running", checkpointSeq: 1, generation: 0, currentStep: "finish", domainStatus: "collected",
+    });
+    expect(await progress(client, runId)).toMatchObject({
+      stage: { phase: "executing", stepKey: "finish", position: null, total: null }, detail: null,
     });
     const initialResults = data(await client.call<Artifacts>("workflow_results", { runId }));
     expect(initialResults.artifacts.map(artifact => artifact.kind)).toEqual(["fixture-page"]);
@@ -479,6 +541,9 @@ describe("ATK stdio MCP durable worker", () => {
     const cancelled = await untilStatus(client, runId, "cancelled");
     pausedWorkers.delete(marker.pid);
     expect(cancelled).toMatchObject({ checkpointSeq: 1, currentStep: "finish", domainStatus: "collected" });
+    expect(await progress(client, runId)).toMatchObject({
+      status: "cancelled", stage: { phase: "cancelled", stepKey: "finish" }, detail: null,
+    });
     expect((await client.call("workflow_results", { runId, artifactId: marker.artifactId })).isError).toBe(true);
     data(await client.call<Status>("workflow_resume", { runId, expectedCheckpointSeq: 1 }));
     expect(await untilStatus(client, runId, "completed")).toMatchObject({
@@ -519,10 +584,11 @@ describe("ATK stdio MCP durable worker", () => {
   }, 60_000);
 
   it("preserves all seven domain stage commits when an input change adds a separate checkpoint", async () => {
+    const stages = ["collect", "inventory", "parse", "map", "validate", "summarize", "finish"];
     const fixture = await makeFixture(1);
+    await fixture.configure(revision, stages);
     const client = await openClient(fixture.configPath);
     const { runId } = await start(client, "seven-stages", "seven-stages");
-    const stages = ["collect", "inventory", "parse", "map", "validate", "summarize", "finish"];
     const committedSeq = [1, 2, 3, 5, 6, 7, 8];
     for (const [index, stage] of stages.entries()) {
       const final = index === stages.length - 1;
@@ -531,6 +597,10 @@ describe("ATK stdio MCP durable worker", () => {
         runId, checkpointSeq: committedSeq[index], domainStatus: stage + "-complete", currentStep: stages[index + 1] ?? null,
         lastCompletedStep: { stepKey: stage, generation: index < 3 ? 0 : 1, checkpointSeq: committedSeq[index] },
         nextAction: { action: final ? "results" : "resume" },
+      });
+      expect(await progress(client, runId)).toMatchObject({
+        stage: { phase: observed.status, stepKey: stages[index + 1] ?? null, position: final ? null : index + 2, total: stages.length },
+        lastCompletedStep: observed.lastCompletedStep, nextAction: observed.nextAction,
       });
       if (!final) data(await client.call<Status>("workflow_resume", observed.nextAction.arguments));
     }
@@ -624,6 +694,10 @@ describe("ATK stdio MCP durable worker", () => {
     const reconnected = await openClient(fixture.configPath);
     expect(await status(reconnected, runId)).toEqual(failed);
     expect(await reconnected.call("workflow_resume", { runId })).toMatchObject({ isError: true, structuredContent: error });
+    expect(await progress(reconnected, runId)).toMatchObject({
+      runId, status: "failed", stage: { phase: "failed", stepKey: "finish", position: null, total: null },
+      lastCompletedStep: failed.lastCompletedStep, detail: null, error, nextAction: failed.nextAction,
+    });
     expect(await rerunHistory(fixture, runId)).toEqual(before);
   }, 60_000);
 
@@ -744,6 +818,9 @@ describe("ATK stdio MCP durable worker", () => {
     expect(pending).toMatchObject({
       status: "running", checkpointSeq: 2, currentStep: "finish",
       pendingRerun: { id: expect.any(String), expectedCheckpointSeq: 2, stepKey: "finish", scope: request.scope, params: request.params },
+    });
+    expect(await progress(client, runId)).toMatchObject({
+      stage: { phase: "preparing", stepKey: "finish" }, detail: null,
     });
     killFixtureWorker(pid);
     pausedWorkers.delete(pid);

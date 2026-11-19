@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { profileFingerprint } from "../src/mcp/config.js";
+import { loadMcpConfig, profileFingerprint } from "../src/mcp/config.js";
 import { SqliteMcpJobStore } from "../src/mcp/job-store.js";
-import { runMcpWorker } from "../src/mcp/worker.js";
+import { requirePinnedProfile, runMcpWorker } from "../src/mcp/worker.js";
 
 const job = {
   runId: "id", profile: "fixture", profileFingerprint: "pin", request: {}, requestFingerprint: "request",
@@ -52,11 +52,56 @@ describe("MCP invocation telemetry", () => {
     }
     jobs = new SqliteMcpJobStore(path);
     expect(jobs.readByKey("fixture", "key")).toMatchObject({
-      runId: "id", request: { mode: "scan" }, status: "failed", rerun: null,
+      runId: "id", request: { mode: "scan" }, status: "failed", rerun: null, stageOrder: null,
       error: { code: "OLD_ERROR", message: "Original failure" }, progress: null, workerPid: null, heartbeatAt: null,
     });
     expect(jobs.queueResume("id", "first", "second", 1000)?.status).toBe("queued");
     expect(jobs.claim("id", "second", 1000)?.workerPid).toBe(process.pid);
+  });
+
+  it("retains the original stage order across profile edits, restarts and duplicate registrations", () => {
+    const configPath = join(directory, "config.json");
+    writeFileSync(join(directory, "workflow.mjs"), "");
+    const loadProfile = (stageOrder?: readonly string[]) => {
+      writeFileSync(configPath, JSON.stringify({
+        stateDirectory: ".", profiles: { fixture: { module: "workflow.mjs", revision: "r1", stageOrder } },
+      }));
+      return loadMcpConfig(configPath).profiles.get("fixture")!;
+    };
+    const dynamic = loadProfile();
+    const original = loadProfile(["scan", "index"]);
+    expect(profileFingerprint(original)).toBe(profileFingerprint(dynamic));
+    const registration = { ...job, profileFingerprint: profileFingerprint(original) };
+    jobs = new SqliteMcpJobStore(path);
+    expect(jobs.start({ ...registration, stageOrder: original.stageOrder! }, 1000).job.stageOrder).toEqual(["scan", "index"]);
+    jobs.close();
+    jobs = new SqliteMcpJobStore(path);
+    const edited = loadProfile(["index", "scan", "publish"]);
+    expect(profileFingerprint(edited)).toBe(profileFingerprint(original));
+    expect(jobs.start({ ...registration, stageOrder: edited.stageOrder! }, 1000)).toMatchObject({
+      created: false, job: { stageOrder: ["scan", "index"] },
+    });
+    jobs.noteExit("id", "first", exit);
+    const resumed = jobs.queueResume("id", "first", "second", 1000)!;
+    expect(resumed.stageOrder).toEqual(["scan", "index"]);
+    const dynamicJob = jobs.start({ ...registration, runId: "dynamic", idempotencyKey: "other" }, 1000).job;
+    expect(dynamicJob.stageOrder).toBeNull();
+    const currentConfig = loadMcpConfig(configPath);
+    expect(requirePinnedProfile(currentConfig, resumed).stageOrder).toEqual(["scan", "index"]);
+    expect(requirePinnedProfile(currentConfig, dynamicJob)).not.toHaveProperty("stageOrder");
+  });
+
+  it("rejects empty, repeated, oversized and non-text stage keys in profile configuration", () => {
+    const configPath = join(directory, "config.json");
+    for (const stageOrder of [
+      null, "scan", [], [" "], ["scan", "scan"], [123], ["x".repeat(257)],
+      Array.from({ length: 257 }, (_, index) => String(index)),
+    ]) {
+      writeFileSync(configPath, JSON.stringify({
+        stateDirectory: ".", profiles: { fixture: { module: "workflow.mjs", revision: "r1", stageOrder } },
+      }));
+      expect(() => loadMcpConfig(configPath)).toThrow(/stageOrder/u);
+    }
   });
 
   it("renews liveness independently and ignores equivalent snapshots and stale attempts", () => {
