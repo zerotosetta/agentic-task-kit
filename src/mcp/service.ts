@@ -345,9 +345,12 @@ export class McpWorkflowService {
     const fingerprint = rerunFingerprint(fields);
     const isDuplicate = (job: McpJob) => job.rerun !== null && rerunFingerprint(job.rerun) === fingerprint;
     const job = this.requireJob(runId);
-    if (isDuplicate(job)) return this.status(runId);
-
     const run = await this.execution.readRun(runId);
+    // Planning may fail before it commits pending work. Allow that same request
+    // after its external prerequisite becomes available, while preserving
+    // idempotency for active or already committed reruns.
+    const failedBeforeCommit = job.status === "failed" && job.rerun?.id !== run?.checkpoint.rerun?.id;
+    if (isDuplicate(job) && !failedBeforeCommit) return this.status(runId);
     if (expectedCheckpointSeq !== run?.checkpoint.checkpointSeq) {
       throw new McpWorkflowError("CHECKPOINT_CONFLICT", "Expected checkpoint differs from the committed head.");
     }
