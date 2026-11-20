@@ -7,7 +7,7 @@
 로컬 배포본을 사용할 때는 새 상위 폴더에서 다음 명령을 실행합니다. PowerShell 예시의 첫 줄에는 받은 tgz 파일의 실제 경로를 지정합니다.
 
 ```powershell
-$packageFile = (Resolve-Path .\agentic-task-kit-0.2.0-sdk.1.tgz).Path
+$packageFile = (Resolve-Path .\agentic-task-kit-0.2.0-sdk.2.tgz).Path
 npm install $packageFile
 npx --no-install atk-mcp init .\word-demo
 cd .\word-demo
@@ -65,6 +65,40 @@ const result = await runPipeline(pipeline, { text: "atk" }, { stateDirectory: ".
 | 재개·선택 재실행 | 로컬은 같은 요청으로 `runPipeline(pipeline, request, {stateDirectory, runId, resume:true, expectedCheckpointSeq})`를 호출합니다. MCP는 `workflow_resume`과 `workflow_rerun`을 사용합니다. 재실행은 선택한 경로의 입력에서 시작하며 단계는 `ctx.rerun`에서 범위와 매개변수를 읽습니다. |
 | 병렬 합류 | `parallelStep({key, inputSchema, branches:[{key, pipeline}, …], concurrency:2})`는 자식 파이프라인을 제한된 동시성으로 실행합니다. 모두 성공하면 분기 키별 출력을 반환합니다. 실패나 대기 후 부모를 재개하면 완료한 자식 결과를 재사용합니다. 새 단계 재실행은 새 자식 실행을 만듭니다. 복구할 때는 부모 작업 폴더의 `parallel` 상태도 보존합니다. |
 | 진척·외부 작업 | `ctx.reportProgress({operation,completed,total,unit,item})`은 현재 시도와 단계에 묶입니다. 외부 쓰기는 `runId`와 논리 작업 키 `ctx.operationKey`를 멱등 키로 사용할 수 있습니다. 작업자가 쓰기를 끝내고 체크포인트를 커밋하기 전에 종료되면 같은 작업이 재시도될 수 있습니다. |
+
+## 도메인 체크포인트를 사용하는 단계
+
+기존 업무가 단계별 상태, 여러 산출물, 입력 스냅샷을 관리한다면 `definePipeline({ mode: "durable", … })`로 그 계약을 선언할 수 있습니다. 예를 들어 검증을 마친 보고서를 발행하는 단계는 다음처럼 작성합니다.
+
+```ts
+const publish = {
+  key: "publish",
+  inputSchema: publishScopeSchema,
+  outputSchema: publicationOutcomeSchema,
+  allowedNext: [null],
+  async run(ctx: DurableStepContext) {
+    const report = await renderVerifiedReport(ctx);
+    const artifact = await ctx.putArtifact("business-report", report);
+    return {
+      next: null, artifacts: [artifact],
+      outcome: { code: "verified-and-published", reportId: artifact.id },
+    };
+  },
+};
+
+const pipeline = definePipeline({
+  mode: "durable", key: "reports", revision, description: "검증된 보고서 발행",
+  inputSchema: requestSchema, outputSchema: publicationOutcomeSchema,
+  steps: [verify, publish],
+  bind: (host, fingerprint) => bindReportRun(host, fingerprint),
+});
+```
+
+`bind`는 실행마다 `{ input, first }`를 반환합니다. `input`은 도메인의 입력 스냅샷이고 `first`는 최초 `DurableWork`입니다. 도메인이 manifest에 선언 지문 `fingerprint`와 입력 식별 정보를 저장하고, 재개할 때 현재 값과 대조합니다. 핸들러의 동작 변경은 `revision`에 반영합니다.
+
+SDK는 실행 요청, 단계의 `work.scope`, 커밋할 `outcome`, 다음 단계의 키와 입력을 검증합니다. 각 단계가 허용하는 다음 키를 `allowedNext`에 지정하고, 종료할 수 있는 단계에는 `null`을 포함합니다. 종료 시 파이프라인의 출력 스키마도 검사합니다. 커밋에는 핸들러가 반환한 결과 코드와 산출물 참조가 보존됩니다. 로컬에서는 `result.checkpoint.committed`, MCP에서는 `workflow_progress`의 `lastCompletedStep`과 `workflow_results`로 확인할 수 있습니다.
+
+`bind`에서 `prepareNext`로 입력 세대와 재사용할 산출물을 함께 전환하고, `pauseBefore`로 자료 제출을 기다리고, `planRerun`으로 선택 재실행을 구성할 수 있습니다. 실행기가 사용하는 내부 제어 단계에는 `internal: true`를 지정합니다. 진행률의 단계 번호와 전체 단계 수에는 공개 단계만 들어갑니다. [체크포인트와 입력 세대](./durable-execution.md)
 
 ## 에이전트가 목표로부터 계획 만들기
 

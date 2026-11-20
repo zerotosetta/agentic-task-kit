@@ -1,6 +1,6 @@
 import type { PipelineSchema } from "../pipeline-schema.js";
 import type { PipelineOperationDescriptor } from "../pipeline-planner.js";
-import type { DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRerun, DurableRunResult } from "./durable.js";
+import type { DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRerun, DurableRunResult, DurableStep } from "./durable.js";
 import type { McpWorkflowContext, McpWorkflowFactory, McpWorkflowPlan, McpWorkflowProfile, McpWorkflowProgressUpdate } from "./mcp.js";
 
 export interface PipelineDescriptor {
@@ -53,6 +53,39 @@ export interface PipelineOptions extends Omit<PipelineDescriptor, "stageOrder" |
   /** Maximum number of edges traversed on one execution path. Defaults to 256. */
   maxTransitions?: number;
   steps: readonly PipelineStep[];
+}
+
+export interface DurablePipelineStepDescriptor {
+  key: string;
+  internal?: boolean;
+  inputSchema: PipelineSchema;
+  outputSchema: PipelineSchema;
+  allowedNext: readonly (string | null)[];
+}
+
+export interface DurablePipelineStep extends DurablePipelineStepDescriptor {
+  run: DurableStep;
+}
+
+/** Domain code owns its snapshot and work identities, including pinning the definition fingerprint. */
+export type DurablePipelineBinding = Omit<McpWorkflowPlan, "workflow" | "stageOrder">;
+
+export interface DurablePipelineOptions {
+  mode: "durable";
+  key: string;
+  revision: string;
+  description: string;
+  inputSchema: PipelineSchema;
+  outputSchema: PipelineSchema;
+  steps: readonly DurablePipelineStep[];
+  bind(context: PipelineHostContext, fingerprint: string): DurablePipelineBinding | Promise<DurablePipelineBinding>;
+}
+
+export interface DurablePipelineDefinition extends PipelineDefinition {
+  readonly descriptor: PipelineDefinition["descriptor"] & {
+    mode: "durable";
+    steps: readonly DurablePipelineStepDescriptor[];
+  };
 }
 
 export type PipelineHostContext = Omit<McpWorkflowContext, "request"> & { request: DurableJSON };

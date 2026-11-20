@@ -1,7 +1,8 @@
 import { canonicalJSON, copyJSON, DurableExecutionError, hasText, isRecord, manifestRef, readVerifiedArtifact, sha256 } from "./durable-validation.js";
+import { defineDurablePipeline } from "./pipeline-domain.js";
 import { assertPipelineSchema, assertPipelineValue } from "./pipeline-schema.js";
 import type { DurableArtifactRef, DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRerun, DurableStep, DurableWork } from "./types/durable.js";
-import type { PipelineDefinition, PipelineHostContext, PipelineOptions, PipelineStep, PipelineStepContext } from "./types/pipeline.js";
+import type { DurablePipelineDefinition, DurablePipelineOptions, PipelineDefinition, PipelineHostContext, PipelineOptions, PipelineStep, PipelineStepContext } from "./types/pipeline.js";
 
 export { runPipeline } from "./pipeline-runner.js";
 export type * from "./types/pipeline.js";
@@ -73,7 +74,10 @@ async function getOutputs(path: Path, read: (ref: DurableArtifactRef) => Promise
 }
 
 /** Compile an ordered, schema-checked pipeline to the durable runtime and MCP plugin contract. */
-export function definePipeline(options: PipelineOptions): PipelineDefinition {
+export function definePipeline(options: PipelineOptions): PipelineDefinition;
+export function definePipeline(options: DurablePipelineOptions): DurablePipelineDefinition;
+export function definePipeline(options: PipelineOptions | DurablePipelineOptions): PipelineDefinition {
+  if ("mode" in options) return defineDurablePipeline(options);
   const { key, revision, description, maxTransitions = 256 } = options;
   if (!hasText(key) || !hasText(revision) || !hasText(description)) throw new TypeError("A pipeline requires a key, revision and description.");
   if (!Number.isSafeInteger(maxTransitions) || maxTransitions < 0) throw new RangeError("maxTransitions must be a nonnegative safe integer.");

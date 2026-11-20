@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Support domain-managed pipeline stages with validated work scopes and transitions, checkpointed outcomes, multiple artifacts, and atomic input generation changes.
+
 - Ship a standalone pipeline SDK with a project starter, schema-checked stages, durable parallel joins, MCP clients and server embedding. Agents can generate or submit a bounded plan against a host operation catalog and resume from its pinned checkpoint.
 
 - Add the read-only MCP tool `workflow_progress` for stage phase, configured stage position, and the latest operation's counts and percentage. Each run keeps the stage order supplied at registration.

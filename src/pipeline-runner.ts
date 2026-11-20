@@ -78,6 +78,8 @@ export async function runPipeline(
       }
     }
     const result = await executePlan(runId, store, plan, checkpoint, maxSteps, signal, () => signal.throwIfAborted());
+    // Domain artifacts can contain arbitrary bytes, even when a kind shares the value pipeline prefix.
+    if (pipeline.descriptor && "mode" in pipeline.descriptor && pipeline.descriptor.mode === "durable") return result;
     const committed = result.checkpoint.committed;
     const ref = committed?.artifacts.find(artifact => artifact.id === committed.outcome.detailsRef && artifact.kind.startsWith("pipeline-output/"));
     if (result.status !== "completed" || !ref) return result;
