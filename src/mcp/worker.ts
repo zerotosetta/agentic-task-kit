@@ -1,13 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { advanceInput, resumeDurable, runDurable, scheduleDurableRerun, verifyDurableCheckpointArtifacts } from "../durable-execution.js";
+import { scheduleDurableRerun, verifyDurableCheckpointArtifacts } from "../durable-execution.js";
 import { normalizeFailure } from "../durable-errors.js";
 import { SqliteDurableExecutionStore } from "../durable-store.js";
-import { sameSnapshot, validateSnapshot } from "../durable-validation.js";
-import type { DurableAttempt, DurableCheckpoint, DurableExecutionStore, DurableJSON, DurableRunResult } from "../types/durable.js";
-import type { McpWorkflowFactory, McpWorkflowPlan, McpWorkflowProfile, McpWorkflowProgressUpdate } from "../types/mcp.js";
-import { McpWorkflowError, profileFingerprint, type McpConfig } from "./config.js";
+import { executePlan, requireMatchingInput } from "./execute-plan.js";
+import type { DurableAttempt, DurableExecutionStore, DurableJSON } from "../types/durable.js";
+import type { McpWorkflowFactory, McpWorkflowProfile, McpWorkflowProgressUpdate } from "../types/mcp.js";
+import { McpWorkflowError, parseStageOrder, profileFingerprint, type McpConfig } from "./config.js";
 import { SqliteMcpJobStore, type McpJobError, type McpJob } from "./job-store.js";
 
 export function jobError(error: unknown, fallbackCode: string): McpJobError {
@@ -29,15 +29,9 @@ export function requirePinnedProfile(config: McpConfig, job: McpJob): McpWorkflo
   throw new McpWorkflowError("WORKFLOW_REVISION_MISMATCH", "The registered workflow profile differs from the run's pinned profile.");
 }
 
-function requireMatchingInput(plan: McpWorkflowPlan, checkpoint: DurableCheckpoint): void {
-  const expected = validateSnapshot(plan.input, checkpoint);
-  if (!sameSnapshot(checkpoint.input, expected)) {
-    throw new McpWorkflowError("INPUT_SNAPSHOT_MISMATCH", "The plugin input differs from the current committed snapshot.");
-  }
-}
-
 class OwnedWorkflowStore extends SqliteDurableExecutionStore {
   private attempt: DurableAttempt | null = null;
+  private plannedStages: readonly string[] | undefined;
 
   constructor(
     config: McpConfig,
@@ -53,6 +47,11 @@ class OwnedWorkflowStore extends SqliteDurableExecutionStore {
     if (this.attempt) this.jobs.reportProgress(this.runId, this.token, this.attempt, update);
   }
 
+  setPlannedStages(stages: readonly string[], hasCheckpoint: boolean): void {
+    this.plannedStages = parseStageOrder(stages);
+    if (hasCheckpoint) this.publishPlannedStages();
+  }
+
   override close(): void {
     this.attempt = null;
     super.close();
@@ -60,12 +59,24 @@ class OwnedWorkflowStore extends SqliteDurableExecutionStore {
 
   override async createRun(...args: Parameters<DurableExecutionStore["createRun"]>) {
     this.assertOwned();
-    return super.createRun(...args);
+    const created = await super.createRun(...args);
+    if (created && args[0].runId === this.runId) this.publishPlannedStages();
+    return created;
   }
 
   override async acquire(...args: Parameters<DurableExecutionStore["acquire"]>) {
     this.assertOwned();
-    return super.acquire(...args);
+    const acquired = await super.acquire(...args);
+    // A durable head now exists. A failure before the first checkpoint may still replan.
+    if (acquired && args[0] === this.runId) this.publishPlannedStages();
+    return acquired;
+  }
+
+  private publishPlannedStages() {
+    if (this.plannedStages) {
+      this.jobs.pinStageOrder(this.runId, this.token, this.plannedStages);
+      this.plannedStages = undefined;
+    }
   }
 
   override async renew(...args: Parameters<DurableExecutionStore["renew"]>) {
@@ -99,55 +110,6 @@ class OwnedWorkflowStore extends SqliteDurableExecutionStore {
     const stopped = await super.stop(...args);
     if (stopped && args[0] === this.runId) this.attempt = null;
     return stopped;
-  }
-}
-
-async function executePlan(
-  runId: string,
-  store: SqliteDurableExecutionStore,
-  plan: McpWorkflowPlan,
-  checkpoint: DurableCheckpoint | null,
-  stepLimit: number | undefined,
-  signal: AbortSignal,
-  assertActive: () => void,
-): Promise<DurableRunResult> {
-  const { workflow, prepareNext } = plan;
-  let remaining = stepLimit ?? Infinity;
-  let latest: DurableRunResult | undefined;
-  let head = checkpoint;
-  if (head) requireMatchingInput(plan, head);
-  let expectedInput = plan.input;
-
-  while (true) {
-    assertActive();
-    if (head?.next && prepareNext) {
-      const change = await prepareNext({ checkpoint: structuredClone(head), signal });
-      assertActive();
-      if (change) {
-        head = await advanceInput(runId, { ...change, workflow, expectedCheckpointSeq: head.checkpointSeq, store });
-        expectedInput = head.input;
-      }
-    }
-
-    const maxSteps = prepareNext ? 1 : stepLimit;
-    const options = { store, signal, ...(maxSteps === undefined ? {} : { maxSteps }) };
-    const previousSeq = head?.checkpointSeq ?? 0;
-    assertActive();
-    if (head) {
-      latest = await resumeDurable(runId, {
-        ...options,
-        workflow,
-        expectedInput,
-        expectedCheckpointSeq: head.checkpointSeq,
-      });
-    } else {
-      latest = await runDurable(workflow, { ...options, input: expectedInput, first: plan.first, runId });
-    }
-    const committed = latest.checkpoint.checkpointSeq - previousSeq;
-    remaining -= committed;
-    if (latest.status !== "interrupted" || remaining <= 0 || !prepareNext) return latest;
-    head = latest.checkpoint;
-    expectedInput = head.input;
   }
 }
 
@@ -214,6 +176,10 @@ export async function runMcpWorker(config: McpConfig, runId: string, token: stri
       assertActive();
       if (plan?.workflow?.revision !== profile.revision) {
         throw new McpWorkflowError("WORKFLOW_REVISION_MISMATCH", "The plugin workflow revision must match its registered profile.");
+      }
+      if (job.stageOrder === null && plan.stageOrder) {
+        if (checkpoint) requireMatchingInput(plan, checkpoint);
+        store.setPlannedStages(plan.stageOrder, checkpoint !== null);
       }
       if (pending) {
         if (!checkpoint || checkpoint.checkpointSeq !== pending.expectedCheckpointSeq) {

@@ -61,10 +61,10 @@ async function main() {
   });
   await copyFile(readmePath, resolve(outputDir, "README.md"));
   await copyFile(licensePath, resolve(outputDir, "LICENSE"));
-  for (const file of rootManifest.files.filter(file => file.startsWith("docs/"))) {
+  for (const file of rootManifest.files.filter(file => file.startsWith("docs/") || file.startsWith("templates/"))) {
     const target = resolve(outputDir, file);
     await mkdir(dirname(target), { recursive: true });
-    await copyFile(resolve(projectRoot, file), target);
+    await cp(resolve(projectRoot, file), target, { recursive: true });
   }
 
   await writeFile(

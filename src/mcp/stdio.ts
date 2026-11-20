@@ -1,4 +1,5 @@
 import type { Readable, Writable } from "node:stream";
+import { frames, versions } from "./framing.js";
 import { normalizeFailure } from "../durable-errors.js";
 import { isRecord } from "../durable-validation.js";
 
@@ -7,9 +8,7 @@ type RpcResult = { jsonrpc: "2.0"; id: RpcId; result: unknown };
 type RpcError = { jsonrpc: "2.0"; id: RpcId | null; error: { code: number; message: string } };
 type RpcResponse = RpcResult | RpcError;
 
-const versions = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
 const batchVersion = "2025-03-26";
-const maxFrameBytes = 1024 * 1024;
 const maxConcurrentCalls = 64;
 const maxBatchItems = 64;
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -26,12 +25,16 @@ function tool(
   return {
     name,
     description,
-    inputSchema: { type: "object", properties, required, additionalProperties: false },
+    inputSchema: { type: "object" as const, properties, required, additionalProperties: false },
     annotations,
   };
 }
 
-const tools = [
+export const workflowTools = [
+  tool("workflow_list", "List the registered workflow profiles and revisions.", {}, [], { readOnlyHint: true }),
+  tool("workflow_describe", "Discover the inputs, output and declared stage order of a workflow before starting it.", {
+    profile: requiredString,
+  }, ["profile"], { readOnlyHint: true }),
   tool("workflow_start", "Schedule a workflow and return its run ID. If the response was lost, repeat the same profile, request and idempotency key.", {
     profile: requiredString,
     request: { type: "object" },
@@ -51,7 +54,7 @@ const tools = [
   tool("workflow_rerun", "Request a workflow-defined step rerun on the current checkpoint with an optional scope and parameters.", {
     runId: requiredString,
     expectedCheckpointSeq: { type: "integer", minimum: 0 },
-    stepKey: { ...requiredString, maxLength: 128 },
+    stepKey: { ...requiredString, maxLength: 256 },
     scope: { type: "object" },
     params: { type: "object" },
   }, ["runId", "expectedCheckpointSeq", "stepKey"], { readOnlyHint: false, idempotentHint: true }),
@@ -85,57 +88,30 @@ function isRpcReply(message: Record<string, unknown>): boolean {
     && (Object.hasOwn(message, "result") !== Object.hasOwn(message, "error"));
 }
 
-function toolResult(data: object, legacy: boolean, isError = false) {
+export function toolResult(data: object, legacy: boolean, isError = false) {
   return {
-    content: [{ type: "text", text: JSON.stringify(data) }],
+    content: [{ type: "text" as const, text: JSON.stringify(data) }],
     ...(legacy ? {} : { structuredContent: data }),
     isError,
   };
 }
 
-function toolError(error: unknown) {
+export function toolError(error: unknown) {
   if (error instanceof Error || (isRecord(error) && typeof error.code === "string" && typeof error.message === "string")) {
     return normalizeFailure(error, "INTERNAL_ERROR", "Workflow request failed.");
   }
   return { code: "INTERNAL_ERROR", message: "Workflow request failed." };
 }
 
-/** Null marks an oversized input line. Discard the rest of that line without buffering it. */
-async function* frames(input: Readable): AsyncGenerator<Buffer | null> {
-  const parts: Buffer[] = [];
-  let size = 0;
-  let oversized = false;
-  for await (const source of input) {
-    const chunk = typeof source === "string" ? Buffer.from(source) : source as Buffer;
-    let start = 0;
-    while (start < chunk.length) {
-      const delimiter = chunk.indexOf(0x0a, start);
-      const end = delimiter === -1 ? chunk.length : delimiter;
-      if (!oversized) {
-        size += end - start;
-        oversized = size > maxFrameBytes;
-        if (oversized) parts.length = 0;
-        else if (end > start) parts.push(chunk.subarray(start, end));
-      }
-      if (delimiter === -1) break;
-      yield oversized ? null : Buffer.concat(parts, size);
-      size = 0;
-      oversized = false;
-      parts.length = 0;
-      start = delimiter + 1;
-    }
-  }
-  if (oversized) yield null;
-  else if (size > 0) yield Buffer.concat(parts, size);
-}
-
 /** Serve newline-delimited MCP messages. A request's controller is separate from any workflow controller. */
 export async function serveMcpStdio(
   call: ToolCall,
-  { input = process.stdin, output = process.stdout, serverVersion = "dev" }: {
+  { input = process.stdin, output = process.stdout, serverName = "atk-mcp", serverVersion = "dev", tools = workflowTools }: {
     input?: Readable;
     output?: Writable;
+    serverName?: string;
     serverVersion?: string;
+    tools?: readonly { name: string; description: string; inputSchema: object }[];
   } = {},
 ): Promise<void> {
   const active = new Map<RpcId, AbortController>();
@@ -189,7 +165,7 @@ export async function serveMcpStdio(
       return resultResponse(id, {
         protocolVersion,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "atk-mcp", version: serverVersion },
+        serverInfo: { name: serverName, version: serverVersion },
       });
     }
     if (phase !== "ready") return errorResponse(id, -32002, "MCP initialization is required.");

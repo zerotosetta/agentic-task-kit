@@ -1,5 +1,8 @@
 import type { DurableErrorCause } from "./types/durable.js";
 
+/** Internal cooperative yield shared by the separately bundled SDK and MCP worker. */
+export const durableStepInterrupted = Symbol.for("agentic-task-kit.durableStepInterrupted.v1");
+
 export interface NormalizedFailure extends DurableErrorCause {
   cause?: DurableErrorCause;
 }

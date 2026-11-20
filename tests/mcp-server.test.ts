@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { SqliteDurableExecutionStore } from "../src/durable-store.js";
@@ -293,6 +293,22 @@ function pausedMarker(fixture: Fixture, runId: string) {
 }
 
 describe("ATK stdio MCP durable worker", () => {
+  it("publishes a generated stage order when a prerequisite holds the run at checkpoint zero", async () => {
+    const fixture = await makeFixture();
+    await writeFile(fixture.modulePath, `
+      import { createWorkflow as base } from ${JSON.stringify(pathToFileURL(pluginPath).href)};
+      export async function createWorkflow(ctx) {
+        return { ...await base(ctx), stageOrder: ["collect", "finish"], pauseBeforeFirst: true, pauseBefore: () => true };
+      }
+    `);
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "waiting-at-start", "simple");
+    await untilStatus(client, runId, "interrupted");
+    expect(await progress(client, runId)).toMatchObject({
+      stage: { phase: "interrupted", stepKey: "collect", position: 1, total: 2 }, lastCompletedStep: null,
+    });
+    expect((await rerunHistory(fixture, runId)).attempts).toHaveLength(0);
+  });
   it("leaves percentages unknown for missing or empty counts, and leaves an unlisted stage unnumbered", async () => {
     const fixture = await makeFixture();
     await fixture.configure(revision, ["collect"]);
@@ -396,7 +412,7 @@ describe("ATK stdio MCP durable worker", () => {
     const client = await openClient(fixture.configPath);
     const listed = await client.request<{ tools: Array<{ name: string }> }>("tools/list", {});
     expect(listed.tools.map(tool => tool.name).sort()).toEqual([
-      "workflow_cancel", "workflow_progress", "workflow_rerun", "workflow_results", "workflow_resume", "workflow_start", "workflow_status",
+      "workflow_cancel", "workflow_describe", "workflow_list", "workflow_progress", "workflow_rerun", "workflow_results", "workflow_resume", "workflow_start", "workflow_status",
     ]);
     expect(listed.tools.find(tool => tool.name === "workflow_progress")).toMatchObject({
       annotations: { readOnlyHint: true },
@@ -752,6 +768,49 @@ describe("ATK stdio MCP durable worker", () => {
       checkpointSeq: 4, error: { code: "FIXTURE_RERUN_INVALID" },
     });
     expect(await rerunHistory(fixture, runId)).toEqual({ checkpoints, attempts });
+  }, 60_000);
+
+  it("retries the same request after its external evidence becomes ready without replaying a committed rerun", async () => {
+    const fixture = await makeFixture();
+    const available = join(fixture.controlDirectory, "evidence-ready");
+    await writeFile(fixture.modulePath, `
+import { access } from "node:fs/promises";
+import { createWorkflow as createBase } from ${JSON.stringify(pathToFileURL(pluginPath).href)};
+export async function createWorkflow(context) {
+  const plan = await createBase(context);
+  return {
+    ...plan,
+    async planRerun(request) {
+      try { await access(${JSON.stringify(available)}); }
+      catch { throw Object.assign(new Error("Evidence is not ready."), { code: "FIXTURE_EVIDENCE_NOT_READY" }); }
+      return plan.planRerun(request);
+    },
+  };
+}
+`, "utf8");
+    const client = await openClient(fixture.configPath);
+    const { runId } = await start(client, "rerun-evidence-retry", "ready");
+    const initial = await untilStatus(client, runId, "completed");
+    const history = await rerunHistory(fixture, runId);
+    const request = {
+      runId, expectedCheckpointSeq: initial.checkpointSeq, stepKey: "finish",
+      scope: { sourcePaths: ["/fixture/page.jsp"] }, params: { label: "evidence arrived" },
+    };
+    data(await client.call<Status>("workflow_rerun", request));
+    const rejected = await untilStatus(client, runId, "failed");
+    expect(rejected).toMatchObject({ checkpointSeq: initial.checkpointSeq, error: { code: "FIXTURE_EVIDENCE_NOT_READY" } });
+    expect(await rerunHistory(fixture, runId)).toEqual(history);
+
+    await writeFile(available, "ready");
+    data(await client.call<Status>("workflow_rerun", request));
+    const final = await untilStatus(client, runId, "completed");
+    expect(final).toMatchObject({ checkpointSeq: 4, domainStatus: "rerun-verified" });
+    expect(final.rerun?.id).not.toBe(rejected.pendingRerun?.id);
+    const finalHistory = await rerunHistory(fixture, runId);
+    expect(finalHistory.attempts.map(attempt => attempt.work.stepKey)).toEqual(["collect", "finish", "finish"]);
+    const duplicate = data(await client.call<Status>("workflow_rerun", request));
+    expect(duplicate).toMatchObject({ status: "completed", checkpointSeq: 4, rerun: final.rerun });
+    expect(await rerunHistory(fixture, runId)).toEqual(finalHistory);
   }, 60_000);
 
   it("preserves a scheduled rerun across a worker kill and resumes only its selected work", async () => {

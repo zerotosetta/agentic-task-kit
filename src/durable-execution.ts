@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { normalizeFailure } from "./durable-errors.js";
+import { durableStepInterrupted, normalizeFailure } from "./durable-errors.js";
 import {
   copyJSON,
   DurableExecutionError,
@@ -64,8 +64,14 @@ export function getDurableAttempts(runId: string, { store }: StoreOption): Promi
 }
 
 export async function runDurable(workflow: DurableWorkflow, options: DurableRunOptions): Promise<DurableRunResult> {
+  const checkpoint = await initializeDurable(workflow, options);
+  return execute(workflow, options.store, checkpoint, createCatalog(checkpoint.input), options.signal, options.maxSteps);
+}
+
+/** Commit checkpoint zero so a host can evaluate a prerequisite before the first attempt. */
+export async function initializeDurable(workflow: DurableWorkflow, options: DurableRunOptions): Promise<DurableCheckpoint> {
   validateWorkflow(workflow, null);
-  const { store, signal, maxSteps } = options;
+  const { store, maxSteps } = options;
   const runId = options.runId ?? randomUUID();
   if (!hasText(runId)) throw new DurableExecutionError("INVALID_INPUT", "Run ID must be a nonempty string.");
   validateLimit(maxSteps, null);
@@ -88,7 +94,7 @@ export async function runDurable(workflow: DurableWorkflow, options: DurableRunO
     inputChange: null,
   };
   if (!await store.createRun(checkpoint)) throw await conflict(store, runId);
-  return execute(workflow, store, checkpoint, catalog, signal, maxSteps);
+  return checkpoint;
 }
 
 export async function resumeDurable(runId: string, options: DurableResumeOptions): Promise<DurableRunResult> {
@@ -340,8 +346,12 @@ async function execute(
         changes = await runStep(workflow, handler, store, checkpoint, attempt, catalog, signal);
         signal.throwIfAborted();
       } catch (error) {
+        if (error === durableStepInterrupted && !signal.aborted) {
+          if (!await store.renew(checkpoint.runId, owner)) throw await conflict(store, checkpoint.runId);
+          if (!signal.aborted) return runResult(checkpoint, "interrupted");
+        }
         if (signal.aborted && !cancellation?.aborted) throw signal.reason;
-        return stopExecution(store, checkpoint, owner, error, cancellation);
+        return stopExecution(store, checkpoint, owner, signal.aborted ? signal.reason : error, cancellation);
       }
 
       const updated: DurableCheckpoint = {

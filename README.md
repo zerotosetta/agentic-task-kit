@@ -13,6 +13,8 @@ npm install agentic-task-kit
 ```
 
 ## 현재 포함 범위
+
+- 독립 파이프라인 SDK를 로컬 함수 또는 stdio MCP 서버로 실행합니다. `atk-mcp init` 스타터, 조건 분기·병렬 합류, 에이전트 계획 생성·검증·재개를 지원합니다. [SDK 시작하기](./docs/pipeline-sdk.md)
 - sequential workflow engine
 - `Map<string, any>` workflow input contract
 - shard/kind 기반 in-memory memory engine

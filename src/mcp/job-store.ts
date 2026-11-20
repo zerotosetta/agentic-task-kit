@@ -256,6 +256,15 @@ export class SqliteMcpJobStore {
     });
   }
 
+  pinStageOrder(runId: string, token: string, stages: readonly string[]): void {
+    this.transaction(now => {
+      this.database.prepare(`
+        UPDATE atk_mcp_jobs SET stage_order_json = ?
+        WHERE run_id = ? AND token = ? AND stage_order_json IS NULL AND status = 'running' AND expires_at > ?
+      `).run(JSON.stringify(stages), runId, token, now);
+    });
+  }
+
   /** A successful attempt start or checkpoint commit is itself observable work. */
   markStep(runId: string, token: string, activeAttemptId: string | null, retainProgress = false): void {
     this.transaction(now => {

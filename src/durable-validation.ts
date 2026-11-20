@@ -85,7 +85,7 @@ export function copyJSON(value: unknown, position: Position, field: string, code
   return copy(value);
 }
 
-function canonicalJSON(value: DurableJSON): string {
+export function canonicalJSON(value: DurableJSON): string {
   return JSON.stringify(value, (_key, entry: unknown) =>
     isRecord(entry) ? Object.fromEntries(Object.keys(entry).sort().map(key => [key, entry[key]])) : entry,
   );

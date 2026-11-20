@@ -1,6 +1,6 @@
 {
   "name": "agentic-task-kit",
-  "version": "0.1.9-poc2.4.progress.1",
+  "version": "0.2.0-sdk.1",
   "description": "Cycle foundation MVP for implementing AX Workflow in Node.js and TypeScript.",
   "type": "module",
   "repository": {
@@ -30,8 +30,11 @@
     "dist",
     "LICENSE",
     "docs/agent-session-guide.md",
+    "docs/ai-api.md",
     "docs/durable-execution.md",
-    "docs/mcp-workflows.md"
+    "docs/mcp-workflows.md",
+    "docs/pipeline-sdk.md",
+    "templates/pipeline"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -48,6 +51,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:package": "node ./scripts/verify-package.mjs",
+    "test:sdk-package": "node ./scripts/verify-sdk-package.mjs",
     "test:architecture": "node ./scripts/verify-architecture.mjs",
     "test:watch": "vitest",
     "example": "tsx ./scripts/run-example.ts",

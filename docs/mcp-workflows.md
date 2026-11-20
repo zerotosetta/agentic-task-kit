@@ -30,7 +30,7 @@ Node.js로 직접 실행할 때는 설치된 패키지의 `dist/atk-mcp.js`를 �
 
 플러그인의 `createWorkflow({runId, workDirectory, profile, request, store, checkpoint, signal, reportProgress})`은 `{workflow, input, first, prepareNext?}`를 반환합니다. 타입은 패키지의 `McpWorkflowFactory`, `McpWorkflowContext`, `McpWorkflowPlan`에서 가져올 수 있습니다. 기존 플러그인은 추가된 `reportProgress`를 사용하지 않아도 동작합니다.
 
-- `profile`의 필드는 `name`, 정규화한 절대 `module` 경로, `revision`, `settings`, 선택적 `maxSteps`와 `stageOrder`입니다. `workflow.revision`은 등록한 리비전과 같아야 합니다.
+- `profile`은 `name`, 정규화한 절대 `module` 경로, `revision`, `settings`를 포함합니다. `maxSteps`, `stageOrder`, `description`, `inputSchema`, `outputSchema`, `operations`는 선택 사항입니다. `workflow.revision`은 등록한 리비전과 같아야 합니다.
 - 최초 호출의 `checkpoint`는 `null`입니다. 플러그인이 입력 manifest의 원본 바이트와 입력 산출물을 저장하고 `SnapshotInput`과 첫 작업을 반환합니다. 재개 시에는 같은 작업 디렉터리와 요청으로 팩토리를 다시 호출합니다. 재개 팩토리는 외부 입력의 동일성을 확인하고 현재 체크포인트와 일치하는 `input`을 반환합니다.
 - 선택적 `prepareNext({checkpoint, signal})`는 첫 작업 커밋 이후와 재개 진입 시, 다음 작업이 있을 때 호출합니다. 새 입력이 필요하면 `{input, affectedScope, reuseArtifactIds, next}`를 반환합니다. 실행기가 `advanceInput`으로 현재 순번을 비교해 새 세대를 커밋합니다. 전환이 필요 없는 경우에는 `null` 또는 `undefined`를 반환합니다. 재실행 시에도 체크포인트와 커밋된 산출물에서 전환 계획을 다시 계산할 수 있어야 합니다.
 - 선택적 `planRerun({checkpoint, request, signal})`는 지정된 단계, 범위, 파라미터를 검증한 뒤 해당 단계의 `DurableWork`를 반환합니다. `request`의 필드는 `id`, `expectedCheckpointSeq`, `stepKey`, `scope`, `params`입니다. 변경된 파라미터가 작업의 동작과 캐시 판정에 반영되도록 다음 작업에 포함합니다. 플러그인이 종료 또는 후속 단계를 결정합니다.
@@ -80,6 +80,8 @@ export async function createWorkflow({ runId, profile, request, store, checkpoin
 
 | 도구 | arguments | 반환 |
 | --- | --- | --- |
+| `workflow_list` | `{}` | 프로필 이름, 리비전, 설명을 반환합니다. |
+| `workflow_describe` | `{profile}` | 입력·출력 스키마, 단계 순서, 에이전트용 프로필이 공개한 작업 카탈로그를 반환합니다. [파이프라인 SDK](./pipeline-sdk.md) |
 | `workflow_start` | `{profile, request, idempotencyKey}` | 작업 완료를 기다리지 않고 `runId`와 현재 상태를 반환합니다. 같은 프로필·키·요청은 기존 실행을 반환합니다. 같은 키에 다른 요청을 전달하면 `IDEMPOTENCY_CONFLICT`가 발생합니다. |
 | `workflow_status` | `{runId}` | 기존 실행·체크포인트 필드와 `lastCompletedStep`, `progress`, `lastProgressAt`, `worker`, `nextAction`을 반환합니다. `currentStep`은 다음 작업의 단계이며 도메인 상태는 마지막으로 커밋한 작업 결과에서 가져옵니다. |
 | `workflow_progress` | `{runId}` | 현재 단계 키·순번·실행 여부, 최근 작업의 처리량·백분율, 마지막 완료 단계와 진척 시각을 반환하는 읽기 전용 조회입니다. |

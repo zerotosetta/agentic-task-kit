@@ -1,4 +1,17 @@
 export { createCycle } from "./cycle.js";
+export { definePipeline, readPinnedPipelineRules, runPipeline } from "./pipeline.js";
+export { defineStep, defineOperation, type PipelineValue } from "./pipeline-authoring.js";
+export { parallelStep, type ParallelBranch, type ParallelStepOptions } from "./pipeline-parallel.js";
+export type * from "./types/pipeline.js";
+export { assertPipelineSchema, assertPipelineValue, type PipelineSchema } from "./pipeline-schema.js";
+export { createAgentPipeline, planPipeline, validatePipelinePlan } from "./pipeline-planner.js";
+export type {
+  AgentPipeline, AgentPipelineOptions, PipelineBinding, PipelineEffect, PipelineOperation,
+  PipelineOperationDescriptor, PipelinePlan, PipelinePlannerContext, PipelineStepReference,
+} from "./pipeline-planner.js";
+export { connectMcpClient } from "./mcp/client.js";
+export type { McpClient, McpClientOptions, McpTool, McpToolResult, McpArtifactReadOptions } from "./mcp/client.js";
+export { openWorkflowTools, serveMcpTools, type McpJsonTool } from "./mcp/host.js";
 export { advanceInput, getCheckpoint, getDurableAttempts, getDurableRun, resumeDurable, runDurable, scheduleDurableRerun } from "./durable-execution.js";
 export { SqliteDurableExecutionStore } from "./durable-store.js";
 export { DurableExecutionError } from "./durable-validation.js";

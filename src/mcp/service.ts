@@ -10,6 +10,7 @@ import type { McpWorkflowProgressView, McpWorkflowStatus } from "../types/mcp.js
 import { jsonFingerprint, McpWorkflowError, profileFingerprint, type McpConfig } from "./config.js";
 import { SqliteMcpJobStore, type McpJob, type McpJobError } from "./job-store.js";
 import { readResults } from "./results.js";
+import { assertPipelineValue } from "../pipeline-schema.js";
 import { jobError, requirePinnedProfile } from "./worker.js";
 
 type Arguments = Record<string, unknown>;
@@ -207,6 +208,21 @@ export class McpWorkflowService {
   async call(name: string, args: Arguments, signal: AbortSignal): Promise<unknown> {
     signal.throwIfAborted();
     switch (name) {
+      case "workflow_list":
+        knownArguments(args, []);
+        return { profiles: Array.from(this.config.profiles.values(), ({name, revision, description}) =>
+          ({name, revision, description: description ?? null})) };
+      case "workflow_describe": {
+        knownArguments(args, ["profile"]);
+        const profile = this.config.profiles.get(stringArg(args, "profile", 128));
+        if (!profile) throw new McpWorkflowError("PROFILE_NOT_FOUND", "Workflow profile is not registered.");
+        return {
+          name: profile.name, revision: profile.revision, description: profile.description ?? null,
+          inputSchema: profile.inputSchema ?? { type: "object" }, outputSchema: profile.outputSchema ?? null,
+          stageOrder: profile.stageOrder ?? null,
+          ...(profile.operations && { operations: profile.operations }),
+        };
+      }
       case "workflow_start":
         knownArguments(args, ["profile", "request", "idempotencyKey"]);
         return this.start(args, signal);
@@ -276,6 +292,13 @@ export class McpWorkflowService {
     if (existing) return this.deduplicatedStart(existing, requestFingerprint);
     const profile = this.config.profiles.get(profileName);
     if (!profile) throw new McpWorkflowError("PROFILE_NOT_FOUND", "Workflow profile is not registered.");
+    if (profile.inputSchema) {
+      try {
+        assertPipelineValue(profile.inputSchema, request, "request");
+      } catch (error) {
+        throw new McpWorkflowError("INVALID_ARGUMENT", error instanceof Error ? error.message : "Invalid workflow request.");
+      }
+    }
     let pinned: string;
     try {
       pinned = profileFingerprint(profile);
@@ -338,16 +361,19 @@ export class McpWorkflowService {
     }
     const fields = {
       expectedCheckpointSeq,
-      stepKey: stringArg(args, "stepKey", 128),
+      stepKey: stringArg(args, "stepKey", 256),
       scope: optionalJsonObject(args, "scope"),
       params: optionalJsonObject(args, "params"),
     };
     const fingerprint = rerunFingerprint(fields);
     const isDuplicate = (job: McpJob) => job.rerun !== null && rerunFingerprint(job.rerun) === fingerprint;
     const job = this.requireJob(runId);
-    if (isDuplicate(job)) return this.status(runId);
-
     const run = await this.execution.readRun(runId);
+    // Planning may fail before it commits pending work. Allow that same request
+    // after its external prerequisite becomes available, while preserving
+    // idempotency for active or already committed reruns.
+    const failedBeforeCommit = job.status === "failed" && job.rerun?.id !== run?.checkpoint.rerun?.id;
+    if (isDuplicate(job) && !failedBeforeCommit) return this.status(runId);
     if (expectedCheckpointSeq !== run?.checkpoint.checkpointSeq) {
       throw new McpWorkflowError("CHECKPOINT_CONFLICT", "Expected checkpoint differs from the committed head.");
     }

@@ -27,6 +27,7 @@ jobs:
       - run: npm run build:all-in-one
       - run: npm run test:package
       - run: npm run test:package -- .npm-package/dist
+      - run: npm run test:sdk-package
       - run: npm run example:consumer
       - run: npm run issue:repro:all
       - run: npm ci

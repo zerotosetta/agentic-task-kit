@@ -1,11 +1,40 @@
 import { readFileSync } from "node:fs";
+import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadMcpConfig } from "./config.js";
 import { McpWorkflowService } from "./service.js";
 import { serveMcpStdio } from "./stdio.js";
 import { runMcpWorker } from "./worker.js";
 
-const usage = "Usage: atk-mcp --config <config.json>";
+const usage = "Usage: atk-mcp --config <config.json> | atk-mcp init <empty-directory>";
+
+async function initProject(directory: string) {
+  const target = resolve(directory);
+  await mkdir(target, { recursive: true });
+  if ((await readdir(target)).length) throw new Error("Choose an empty directory for the pipeline project.");
+  const source = new URL("../templates/pipeline/", import.meta.url);
+  const files = await Promise.all((await readdir(source)).map(async name =>
+    ({ name, content: await readFile(new URL(name, source), "utf8") })));
+  const manifest = {
+    name: "atk-pipeline-starter", private: true, type: "module",
+    dependencies: { "agentic-task-kit": packageVersion() },
+    scripts: { setup: "node setup.mjs", local: "node local.mjs", serve: "atk-mcp --config atk-mcp.json" },
+  };
+  files.push({ name: "package.json", content: JSON.stringify(manifest, null, 2) + "\n" });
+  const created: string[] = [];
+  try {
+    for (const { name, content } of files) {
+      const path = join(target, name);
+      await writeFile(path, content, { flag: "wx" });
+      created.push(path);
+    }
+  } catch (error) {
+    await Promise.allSettled(created.map(path => unlink(path)));
+    throw error;
+  }
+  process.stdout.write("Created pipeline project at " + target + "\n");
+}
 
 function packageVersion(): string {
   try {
@@ -18,6 +47,7 @@ function packageVersion(): string {
 }
 
 async function main(args: string[]): Promise<void> {
+  if (args.length === 2 && args[0] === "init" && args[1]) return initProject(args[1]);
   if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
     process.stdout.write(usage + "\n");
     return;

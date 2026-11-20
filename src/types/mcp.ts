@@ -9,12 +9,18 @@ import type {
   SnapshotInput,
 } from "./durable.js";
 import type { NormalizedFailure } from "../durable-errors.js";
+import type { PipelineSchema } from "../pipeline-schema.js";
+import type { PipelineOperationDescriptor } from "../pipeline-planner.js";
 
 export interface McpWorkflowProfile {
   name: string;
   module: string;
   revision: string;
   settings: DurableJSON;
+  description?: string;
+  inputSchema?: PipelineSchema;
+  outputSchema?: PipelineSchema;
+  operations?: readonly PipelineOperationDescriptor[];
   maxSteps?: number;
   /** Ordered durable step keys used to display stage positions for new runs. */
   stageOrder?: readonly string[];
@@ -60,9 +66,15 @@ export interface McpWorkflowInputChange {
 }
 
 export interface McpWorkflowPlan {
+  /** A factory may determine the stage order from a validated per-run plan. */
+  stageOrder?: readonly string[];
   workflow: DurableWorkflow;
   input: SnapshotInput;
   first: DurableWork;
+  /** Evaluate pauseBefore at checkpoint zero before the initial attempt as well. */
+  pauseBeforeFirst?: boolean;
+  /** Release the invocation at a committed boundary while retaining its pending work. */
+  pauseBefore?(context: { checkpoint: DurableCheckpoint; signal: AbortSignal }): boolean | Promise<boolean>;
   prepareNext?(context: { checkpoint: DurableCheckpoint; signal: AbortSignal }):
     McpWorkflowInputChange | undefined | null | Promise<McpWorkflowInputChange | undefined | null>;
   /** Validate and plan a caller-selected stage using previously committed run data. */
