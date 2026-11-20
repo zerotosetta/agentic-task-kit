@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { isNonRecoverableFailure } from "../durable-errors.js";
 import { SqliteDurableExecutionStore } from "../durable-store.js";
 import { copyJSON, hasText, isRecord } from "../durable-validation.js";
-import type { DurableCheckpoint, DurableJSON, DurableRerun, DurableRunResult } from "../types/durable.js";
+import type { DurableArtifactRef, DurableCheckpoint, DurableJSON, DurableRerun, DurableRunResult } from "../types/durable.js";
 import type { McpWorkflowProgressView, McpWorkflowStatus } from "../types/mcp.js";
 import { jsonFingerprint, McpWorkflowError, profileFingerprint, type McpConfig } from "./config.js";
 import { SqliteMcpJobStore, type McpJob, type McpJobError } from "./job-store.js";
@@ -205,6 +205,47 @@ export class McpWorkflowService {
     }
   }
 
+  /** The run binding and job reservation share the same SQLite transaction. */
+  async callForSession(sessionId: string, name: string, args: Arguments, signal: AbortSignal): Promise<unknown> {
+    signal.throwIfAborted();
+    if (name === "workflow_start") {
+      knownArguments(args, ["profile", "request", "idempotencyKey"]);
+      return this.start(args, signal, sessionId);
+    }
+    const job = this.jobs.readBySession(sessionId);
+    if (!job || job.runId !== args.runId) throw new McpWorkflowError("RUN_NOT_FOUND", "Run not found in this session.");
+    if (name === "workflow_resume") {
+      knownArguments(args, ["runId", "expectedCheckpointSeq", "expectedInputSha256"]);
+      return this.resume(args, signal, true);
+    }
+    return this.call(name, args, signal);
+  }
+
+  async sessionView(sessionId: string, includeHistory = false) {
+    const bound = this.jobs.readBySession(sessionId);
+    if (!bound) return { run: null, progress: null, stageOrder: [], completedStages: [], publications: [] };
+    const { status, job, committed, durableAttemptId } = await this.readStatus(bound.runId);
+    const publications: { name: string; artifact: DurableArtifactRef }[] = [];
+    if (status.status === "completed" && committed) {
+      const refs = new Map(committed.artifacts.map(ref => [ref.id, ref]));
+      const outputs = committed.outcome.outputs;
+      if (Array.isArray(outputs)) {
+        for (const output of outputs) {
+          if (!isRecord(output) || !hasText(output.name) || !isRecord(output.artifact) || !hasText(output.artifact.id)) continue;
+          const ref = refs.get(output.artifact.id);
+          if (ref && ref.sha256 === output.artifact.sha256) publications.push({ name: output.name, artifact: ref });
+        }
+      } else if (committed.outcome.detailsRef) {
+        const ref = refs.get(committed.outcome.detailsRef);
+        if (ref) publications.push({ name: ref.kind, artifact: ref });
+      } else {
+        for (const ref of refs.values()) publications.push({ name: ref.kind, artifact: ref });
+      }
+    }
+    const completedStages = includeHistory ? this.execution.committedStepKeys(bound.runId, status.checkpointSeq ?? 0) : [];
+    return { run: status, progress: formatProgress(status, job, durableAttemptId), stageOrder: job.stageOrder ?? [], completedStages, publications };
+  }
+
   async call(name: string, args: Arguments, signal: AbortSignal): Promise<unknown> {
     signal.throwIfAborted();
     switch (name) {
@@ -279,17 +320,24 @@ export class McpWorkflowService {
     while (checkpoint && !checkpoint.committed && checkpoint.previousCheckpointSeq !== null) {
       checkpoint = await this.execution.readCheckpoint(runId, checkpoint.previousCheckpointSeq) ?? undefined;
     }
-    return { job, status: formatStatus(job, run, checkpoint), durableAttemptId: head?.activeAttemptId ?? null };
+    return { job, status: formatStatus(job, run, checkpoint), committed: checkpoint?.committed, durableAttemptId: head?.activeAttemptId ?? null };
   }
 
-  private async start(args: Arguments, signal: AbortSignal): Promise<McpWorkflowStatus> {
+  private async start(args: Arguments, signal: AbortSignal, sessionId?: string): Promise<McpWorkflowStatus> {
     const profileName = stringArg(args, "profile", 128);
-    const idempotencyKey = stringArg(args, "idempotencyKey", 256);
+    const key = stringArg(args, "idempotencyKey", 256);
+    const idempotencyKey = sessionId ? "session/" + jsonFingerprint([sessionId, key]) : key;
     if (!isRecord(args.request)) throw new McpWorkflowError("INVALID_ARGUMENT", "request must be a JSON object.");
     const request = copyJSON(args.request, null, "Workflow request", "INVALID_INPUT");
     const requestFingerprint = jsonFingerprint(request);
-    const existing = this.jobs.readByKey(profileName, idempotencyKey);
-    if (existing) return this.deduplicatedStart(existing, requestFingerprint);
+    const existing = sessionId ? this.jobs.readBySession(sessionId) : this.jobs.readByKey(profileName, idempotencyKey);
+    const recover = (job: McpJob) => {
+      if ((job.sessionId ?? null) !== (sessionId ?? null) || job.profile !== profileName || job.idempotencyKey !== idempotencyKey) {
+        throw new McpWorkflowError("IDEMPOTENCY_CONFLICT", "Another start request already reserved this execution.");
+      }
+      return this.deduplicatedStart(job, requestFingerprint);
+    };
+    if (existing) return recover(existing);
     const profile = this.config.profiles.get(profileName);
     if (!profile) throw new McpWorkflowError("PROFILE_NOT_FOUND", "Workflow profile is not registered.");
     if (profile.inputSchema) {
@@ -307,12 +355,12 @@ export class McpWorkflowService {
     }
     signal.throwIfAborted();
     const { job, created } = this.jobs.start({
-      runId: randomUUID(), profile: profileName, profileFingerprint: pinned,
+      runId: randomUUID(), sessionId: sessionId ?? null, profile: profileName, profileFingerprint: pinned,
       ...(profile.stageOrder && { stageOrder: profile.stageOrder }),
       request, requestFingerprint, idempotencyKey, token: randomUUID(),
       status: "queued", cancelRequested: false, error: null, rerun: null,
     }, this.config.queueMs);
-    if (!created) return this.deduplicatedStart(job, requestFingerprint);
+    if (!created) return recover(job);
     this.launch(job);
     return this.status(job.runId);
   }
@@ -324,7 +372,7 @@ export class McpWorkflowService {
     return this.status(job.runId);
   }
 
-  private async resume(args: Arguments, signal: AbortSignal): Promise<McpWorkflowStatus> {
+  private async resume(args: Arguments, signal: AbortSignal, guardHead = false): Promise<McpWorkflowStatus> {
     const runId = stringArg(args, "runId", 128);
     const expectedSeq = optionalInteger(args, "expectedCheckpointSeq");
     const expectedSha = optionalString(args, "expectedInputSha256", 64);
@@ -333,6 +381,9 @@ export class McpWorkflowService {
     }
     const job = this.requireJob(runId);
     const run = await this.execution.readRun(runId);
+    if (guardHead && run && (expectedSeq === undefined || expectedSha === undefined)) {
+      throw new McpWorkflowError("INVALID_ARGUMENT", "Read session_context and supply the checkpoint sequence and input SHA-256 to resume.");
+    }
     if (expectedSeq !== undefined && expectedSeq !== run?.checkpoint.checkpointSeq) {
       throw new McpWorkflowError("CHECKPOINT_CONFLICT", "Expected checkpoint differs from the committed head.");
     }
@@ -409,9 +460,11 @@ export class McpWorkflowService {
       mkdirSync(directory, { recursive: true });
       log = openSync(join(directory, "worker.log"), "a", 0o600);
       const sqliteFlag = process.execArgv.includes("--experimental-sqlite") ? ["--experimental-sqlite"] : [];
+      const workerEnv = { ...process.env };
+      delete workerEnv.ATK_SERVICE_TOKEN;
       const child = spawn(process.execPath, [
         ...sqliteFlag, this.workerEntry, "--config", this.config.configPath, "--worker", job.runId, job.token,
-      ], { detached: true, windowsHide: true, stdio: ["ignore", log, log] });
+      ], { detached: true, windowsHide: true, stdio: ["ignore", log, log], env: workerEnv });
       child.once("error", error => this.recordWorkerFailure(job, jobError(error, "WORKER_LAUNCH_FAILED"), "launch"));
       child.once("exit", (code, signal) => {
         this.recordWorkerFailure(job, {

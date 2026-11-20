@@ -12,6 +12,7 @@ export type McpJobError = NormalizedFailure;
 
 interface NewJob {
   runId: string;
+  sessionId?: string | null;
   profile: string;
   profileFingerprint: string;
   stageOrder?: readonly string[] | null;
@@ -39,6 +40,7 @@ export interface McpJob extends NewJob {
 
 interface JobRow {
   run_id: string;
+  session_id: string | null;
   profile: string;
   profile_fingerprint: string;
   stage_order_json: string | null;
@@ -65,6 +67,7 @@ const requireBuiltin = createRequire(import.meta.url);
 
 // These columns are also added to databases created by earlier releases.
 const jobColumns = {
+  session_id: "TEXT",
   stage_order_json: "TEXT",
   rerun_json: "TEXT",
   worker_pid: "INTEGER",
@@ -99,6 +102,7 @@ function decode(row: JobRow, now: number): McpJob {
   const expired = (row.status === "queued" || row.status === "running") && (row.expires_at ?? 0) <= now;
   return {
     runId: row.run_id,
+    sessionId: row.session_id,
     profile: row.profile,
     profileFingerprint: row.profile_fingerprint,
     stageOrder: row.stage_order_json === null ? null : JSON.parse(row.stage_order_json) as readonly string[],
@@ -188,6 +192,7 @@ export class SqliteMcpJobStore {
         for (const [name, definition] of Object.entries(jobColumns)) {
           if (!existing.has(name)) this.database.exec(`ALTER TABLE atk_mcp_jobs ADD COLUMN ${name} ${definition}`);
         }
+        this.database.exec("CREATE UNIQUE INDEX IF NOT EXISTS atk_job_session ON atk_mcp_jobs(session_id) WHERE session_id IS NOT NULL");
       });
     } catch (error) {
       this.database.close();
@@ -210,21 +215,31 @@ export class SqliteMcpJobStore {
     return row ? decode(row, Date.now()) : null;
   }
 
+  readBySession(sessionId: string): McpJob | null {
+    const row = this.database.prepare("SELECT * FROM atk_mcp_jobs WHERE session_id = ?").get(sessionId) as JobRow | undefined;
+    return row ? decode(row, Date.now()) : null;
+  }
+
   start(job: NewJob, queueMs: number): { job: McpJob; created: boolean } {
     return this.transaction((now) => {
       const inserted = this.database.prepare(`
         INSERT INTO atk_mcp_jobs (
           run_id, profile, profile_fingerprint, request_json, request_fingerprint, idempotency_key, token,
-          status, expires_at, stage_order_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
-        ON CONFLICT (profile, idempotency_key) DO NOTHING
+          status, expires_at, stage_order_json, session_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+        ON CONFLICT DO NOTHING
         RETURNING *
       `).get(
         job.runId, job.profile, job.profileFingerprint, JSON.stringify(job.request), job.requestFingerprint,
         job.idempotencyKey, job.token, expiration(now, queueMs),
-        job.stageOrder == null ? null : JSON.stringify(job.stageOrder),
+        job.stageOrder == null ? null : JSON.stringify(job.stageOrder), job.sessionId ?? null,
       ) as JobRow | undefined;
       if (inserted) return { job: decode(inserted, now), created: true };
+
+      if (job.sessionId) {
+        const prior = this.readBySession(job.sessionId);
+        if (prior) return { job: prior, created: false };
+      }
 
       const prior = this.database.prepare("SELECT * FROM atk_mcp_jobs WHERE profile = ? AND idempotency_key = ?")
         .get(job.profile, job.idempotencyKey) as JobRow | undefined;

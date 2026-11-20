@@ -6,8 +6,47 @@ import { loadMcpConfig } from "./config.js";
 import { McpWorkflowService } from "./service.js";
 import { serveMcpStdio } from "./stdio.js";
 import { runMcpWorker } from "./worker.js";
+import { startSessionHttp } from "../sessions/http.js";
+import { SessionTools } from "../sessions/tools.js";
 
-const usage = "Usage: atk-mcp --config <config.json> | atk-mcp init <empty-directory>";
+const usage = "Usage: atk-mcp --config <config.json> | atk-mcp init <empty-directory> | atk-mcp serve --config <config.json> [--host <address>] [--port <port>]";
+
+async function serve(args: string[]) {
+  const flags = new Map<string, string>();
+  for (let i = 0; i < args.length; i += 2) {
+    const flag = args[i];
+    const value = args[i + 1];
+    if (!flag || !["--config", "--port", "--host"].includes(flag) || flags.has(flag) || !value || value.startsWith("--"))
+      throw new Error(usage);
+    flags.set(flag, value);
+  }
+  const configPath = flags.get("--config");
+  if (!configPath) throw new Error(usage);
+  const host = flags.get("--host") ?? "127.0.0.1";
+  const port = flags.get("--port") ?? "4317";
+  if (!/^\d+$/.test(port) || Number(port) > 65535) throw new Error("--port must be between 0 and 65535.");
+  const token = process.env.ATK_SERVICE_TOKEN;
+  if (!token) throw new Error("Set ATK_SERVICE_TOKEN before starting the HTTP service.");
+  const service = new SessionTools(loadMcpConfig(configPath), fileURLToPath(import.meta.url));
+  try {
+    const origin = process.env.ATK_SERVICE_ORIGIN;
+    const listener = await startSessionHttp(service, {
+      host, port: Number(port), token, version: packageVersion(), ...(origin !== undefined && { origin }),
+    });
+    try {
+      await new Promise<void>(resolve => {
+        const stop = () => {
+          process.off("SIGINT", stop);
+          process.off("SIGTERM", stop);
+          resolve();
+        };
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+        process.stderr.write("ATK HTTP listening at http://" + (host.includes(":") ? "[" + host + "]" : host) + ":" + listener.port + "\n");
+      });
+    } finally { await listener.close(); }
+  } finally { service.close(); }
+}
 
 async function initProject(directory: string) {
   const target = resolve(directory);
@@ -47,6 +86,7 @@ function packageVersion(): string {
 }
 
 async function main(args: string[]): Promise<void> {
+  if (args[0] === "serve") return serve(args.slice(1));
   if (args.length === 2 && args[0] === "init" && args[1]) return initProject(args[1]);
   if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
     process.stdout.write(usage + "\n");

@@ -83,6 +83,16 @@ export class SqliteDurableExecutionStore implements DurableExecutionStore {
   readonly leaseMs: number;
   private readonly database: DatabaseSync;
 
+  /** Stages with an actual commit at or before the observed head, across input generations. */
+  committedStepKeys(runId: string, throughSeq: number): string[] {
+    const rows = this.database.prepare(`
+      SELECT json_extract(work_json, '$.stepKey') AS step
+      FROM atk_durable_attempts WHERE run_id = ? AND committed_checkpoint_seq <= ? AND status = 'committed'
+      GROUP BY step ORDER BY MIN(committed_checkpoint_seq)
+    `).all(runId, throughSeq);
+    return rows.map(row => String(row.step));
+  }
+
   constructor(databasePath: string, { leaseMs = 30_000 }: { leaseMs?: number } = {}) {
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > 2_147_483_647) {
       throw new RangeError("leaseMs must be a positive integer within Node's timer range.");

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Run persistent task sessions over Streamable HTTP with a browser dashboard, versioned workspace files and guarded workflow resume.
+
 - Support domain-managed pipeline stages with validated work scopes and transitions, checkpointed outcomes, multiple artifacts, and atomic input generation changes.
 
 - Ship a standalone pipeline SDK with a project starter, schema-checked stages, durable parallel joins, MCP clients and server embedding. Agents can generate or submit a bounded plan against a host operation catalog and resume from its pinned checkpoint.

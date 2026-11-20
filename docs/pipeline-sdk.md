@@ -7,7 +7,7 @@
 로컬 배포본을 사용할 때는 새 상위 폴더에서 다음 명령을 실행합니다. PowerShell 예시의 첫 줄에는 받은 tgz 파일의 실제 경로를 지정합니다.
 
 ```powershell
-$packageFile = (Resolve-Path .\agentic-task-kit-0.2.0-sdk.2.tgz).Path
+$packageFile = (Resolve-Path .\agentic-task-kit-0.2.0-sdk.3.tgz).Path
 npm install $packageFile
 npx --no-install atk-mcp init .\word-demo
 cd .\word-demo
