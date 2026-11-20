@@ -48,6 +48,11 @@ const schema = `
   );
   CREATE INDEX IF NOT EXISTS atk_durable_attempts_operation
     ON atk_durable_attempts (run_id, generation, operation_key, attempt_order);
+  CREATE TABLE IF NOT EXISTS atk_deleted_run_owners (run_id TEXT PRIMARY KEY);
+  CREATE TABLE IF NOT EXISTS atk_artifact_owners (
+    artifact_id TEXT PRIMARY KEY, run_id TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS atk_artifact_owner_run ON atk_artifact_owners(run_id);
   CREATE TABLE IF NOT EXISTS atk_durable_artifacts (
     artifact_id TEXT PRIMARY KEY,
     bytes BLOB NOT NULL
@@ -93,7 +98,7 @@ export class SqliteDurableExecutionStore implements DurableExecutionStore {
     return rows.map(row => String(row.step));
   }
 
-  constructor(databasePath: string, { leaseMs = 30_000 }: { leaseMs?: number } = {}) {
+  constructor(databasePath: string, { leaseMs = 30_000 }: { leaseMs?: number } = {}, private readonly artifactOwner?: string) {
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > 2_147_483_647) {
       throw new RangeError("leaseMs must be a positive integer within Node's timer range.");
     }
@@ -126,6 +131,7 @@ export class SqliteDurableExecutionStore implements DurableExecutionStore {
 
   async createRun(checkpoint: DurableCheckpoint): Promise<boolean> {
     return this.transaction(() => {
+      this.assertOwnerExists();
       const { changes } = this.database.prepare(`
         INSERT INTO atk_durable_runs (run_id, checkpoint_seq, status) VALUES (?, ?, ?)
         ON CONFLICT (run_id) DO NOTHING
@@ -291,13 +297,23 @@ export class SqliteDurableExecutionStore implements DurableExecutionStore {
     const copy = new Uint8Array(bytes);
     const id = randomUUID();
     const digest = sha256(copy);
-    this.database.prepare("INSERT INTO atk_durable_artifacts (artifact_id, bytes) VALUES (?, ?)").run(id, copy);
+    this.transaction(() => {
+      this.assertOwnerExists();
+      this.database.prepare("INSERT INTO atk_durable_artifacts (artifact_id, bytes) VALUES (?, ?)").run(id, copy);
+      if (this.artifactOwner) this.database.prepare("INSERT INTO atk_artifact_owners VALUES (?, ?)").run(id, this.artifactOwner);
+    });
     return { kind, id, sha256: digest };
   }
 
   async readArtifact(id: string): Promise<Uint8Array | null> {
     const row = this.database.prepare("SELECT bytes FROM atk_durable_artifacts WHERE artifact_id = ?").get(id);
     return row ? row.bytes as Uint8Array : null;
+  }
+
+  private assertOwnerExists(): void {
+    if (this.artifactOwner && this.database.prepare("SELECT 1 FROM atk_deleted_run_owners WHERE run_id = ?").get(this.artifactOwner)) {
+      throw new Error("Workflow run has been deleted.");
+    }
   }
 
   private transaction<T>(operation: () => T): T {

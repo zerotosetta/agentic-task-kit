@@ -59,6 +59,8 @@ export class SessionTools {
     this.sessions = new SessionStore(config.stateDirectory);
     try { this.workflows = new McpWorkflowService(config, workerEntry); }
     catch (error) { this.sessions.close(); throw error; }
+    try { this.sessions.recoverDeletions(config.jobDatabase); }
+    catch (error) { this.close(); throw error; }
     this.methods = [
       method("session_create", "Create a persistent work session. Retry a lost response with the same idempotencyKey, title and goal.",
         object({ title: str, goal: str, idempotencyKey: str }, ["title", "goal", "idempotencyKey"]), false, args => this.sessions.create(args)),
@@ -88,6 +90,9 @@ export class SessionTools {
           return { session, ...view, run: withSessionAction(run, session.sessionId),
             progress: withSessionAction(progress, session.sessionId, run?.inputSha256), files: this.sessions.listFiles(args.sessionId), allowedActions };
         }),
+      method("session_delete", "Permanently delete a session and its saved work at the observed note version. An active workflow must finish or be cancelled first.",
+        object({ sessionId, expectedVersion: int }, ["sessionId", "expectedVersion"]), false,
+        args => this.sessions.delete(args, config)),
       method("session_note", "Save a handoff summary and next action against the last observed note version.",
         object({ sessionId, expectedVersion: int, summary: str, nextAction: str }, ["sessionId", "expectedVersion", "summary", "nextAction"]),
         false, args => this.sessions.note(args)),

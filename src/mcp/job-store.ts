@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { McpWorkflowError } from "./config.js";
 import type { NormalizedFailure } from "../durable-errors.js";
 import { hasText, isRecord } from "../durable-validation.js";
 import type { DurableAttempt, DurableJSON, DurableRerun } from "../types/durable.js";
@@ -80,6 +81,9 @@ const jobColumns = {
 };
 
 const schema = `
+  CREATE TABLE IF NOT EXISTS atk_deleted_sessions (
+    session_id TEXT PRIMARY KEY, version INTEGER NOT NULL, pending_run_id TEXT
+  );
   CREATE TABLE IF NOT EXISTS atk_mcp_jobs (
     run_id TEXT PRIMARY KEY,
     profile TEXT NOT NULL,
@@ -222,6 +226,9 @@ export class SqliteMcpJobStore {
 
   start(job: NewJob, queueMs: number): { job: McpJob; created: boolean } {
     return this.transaction((now) => {
+      if (job.sessionId && this.database.prepare("SELECT 1 FROM atk_deleted_sessions WHERE session_id = ?").get(job.sessionId)) {
+        throw new McpWorkflowError("SESSION_NOT_FOUND", "Session does not exist.");
+      }
       const inserted = this.database.prepare(`
         INSERT INTO atk_mcp_jobs (
           run_id, profile, profile_fingerprint, request_json, request_fingerprint, idempotency_key, token,

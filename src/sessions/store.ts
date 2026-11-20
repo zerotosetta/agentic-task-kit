@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -68,7 +68,7 @@ const metadata = "path, version, sha256, size, updatedAt";
 export class SessionStore {
   private readonly db: DatabaseSync;
 
-  constructor(stateDirectory: string) {
+  constructor(private readonly stateDirectory: string) {
     string(stateDirectory, "stateDirectory", 32768);
     mkdirSync(stateDirectory, { recursive: true });
     const sqlite = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
@@ -76,6 +76,7 @@ export class SessionStore {
     try {
       this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
       this.transaction(() => this.db.exec(`
+        CREATE TABLE IF NOT EXISTS deleted_creation_keys (digest TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS sessions (
           sessionId TEXT PRIMARY KEY, title TEXT NOT NULL, goal TEXT NOT NULL,
           idempotencyKey TEXT UNIQUE NOT NULL, createdAt TEXT NOT NULL
@@ -119,6 +120,10 @@ export class SessionStore {
     string(goal, "goal", 65536);
     string(idempotencyKey, "idempotencyKey", 512);
     return this.transaction(() => {
+      const keyDigest = createHash("sha256").update(idempotencyKey).digest("hex");
+      if (this.db.prepare("SELECT 1 FROM deleted_creation_keys WHERE digest = ?").get(keyDigest)) {
+        throw new McpWorkflowError("SESSION_NOT_FOUND", "The session created with this key has been deleted.");
+      }
       const existing = this.db.prepare("SELECT " + columns + sessions + "WHERE idempotencyKey = ? AND n.version = 1")
         .get(idempotencyKey) as unknown as SessionRecord | undefined;
       if (existing) {
@@ -150,6 +155,96 @@ export class SessionStore {
       .get(sessionId) as unknown as SessionRecord | undefined;
     if (!row) throw new McpWorkflowError("SESSION_NOT_FOUND", "Session does not exist.");
     return row;
+  }
+
+  /** Reserve deletion against note edits, job launches and durable leases in one transaction. */
+  delete(input: {sessionId: string; expectedVersion: number}, config: {jobDatabase: string; executionDatabase: string}) {
+    const {sessionId, expectedVersion} = input;
+    string(sessionId, "sessionId", 256);
+    integer(expectedVersion, "expectedVersion", 1);
+    this.db.prepare("ATTACH DATABASE ? AS jobs").run(config.jobDatabase);
+    try {
+      this.db.prepare("ATTACH DATABASE ? AS execution").run(config.executionDatabase);
+      try {
+        const pendingRun = this.transaction(() => {
+          const deleted = this.db.prepare("SELECT version, pending_run_id FROM jobs.atk_deleted_sessions WHERE session_id = ?").get(sessionId);
+          if (deleted) {
+            if (deleted.version !== expectedVersion) conflict(Number(deleted.version));
+            return deleted.pending_run_id as string | null;
+          }
+          const session = this.get(sessionId);
+          if (session.version !== expectedVersion) conflict(session.version);
+          const job = this.db.prepare("SELECT run_id, status, expires_at FROM jobs.atk_mcp_jobs WHERE session_id = ?").get(sessionId);
+          const runId = job ? String(job.run_id) : null;
+          if (job && runId) {
+            const now = Date.now();
+            const lease = this.db.prepare("SELECT 1 FROM execution.atk_durable_runs WHERE run_id = ? AND lease_expires_at > ?").get(runId, now);
+            if (lease || ((job.status === "running" || job.status === "queued") && Number(job.expires_at) > now)) {
+              throw new McpWorkflowError("RUN_ACTIVE", "Wait for the workflow to finish or cancel it before deleting the session.");
+            }
+            this.purgeRun(runId);
+            this.db.prepare("DELETE FROM jobs.atk_mcp_jobs WHERE session_id = ?").run(sessionId);
+          }
+          const key = this.db.prepare("SELECT idempotencyKey FROM sessions WHERE sessionId = ?").get(sessionId)!;
+          this.db.prepare("INSERT INTO deleted_creation_keys VALUES (?)").run(createHash("sha256").update(String(key.idempotencyKey)).digest("hex"));
+          this.db.prepare("DELETE FROM files WHERE sessionId = ?").run(sessionId);
+          this.db.prepare("DELETE FROM notes WHERE sessionId = ?").run(sessionId);
+          this.db.prepare("DELETE FROM sessions WHERE sessionId = ?").run(sessionId);
+          this.db.prepare("INSERT INTO jobs.atk_deleted_sessions VALUES (?, ?, ?)").run(sessionId, expectedVersion, runId);
+          return runId;
+        });
+        if (pendingRun) this.removeRunDirectory(sessionId, pendingRun);
+        return {sessionId, deleted: true};
+      } finally { this.db.exec("DETACH DATABASE execution"); }
+    } finally { this.db.exec("DETACH DATABASE jobs"); }
+  }
+
+  recoverDeletions(jobDatabase: string): void {
+    this.db.prepare("ATTACH DATABASE ? AS jobs").run(jobDatabase);
+    try {
+      const pending = this.db.prepare("SELECT session_id, pending_run_id FROM jobs.atk_deleted_sessions WHERE pending_run_id IS NOT NULL").all();
+      for (const row of pending) {
+        try { this.removeRunDirectory(String(row.session_id), String(row.pending_run_id)); }
+        catch (error) {
+          // A locked directory can be retried by session_delete or at the next service start.
+          console.warn("Session directory cleanup pending:", row.session_id, error instanceof Error ? error.message : error);
+        }
+      }
+    } finally { this.db.exec("DETACH DATABASE jobs"); }
+  }
+
+  private removeRunDirectory(sessionId: string, runId: string): void {
+    const runs = join(this.stateDirectory, "runs");
+    if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(runId) ||
+        (existsSync(runs) && lstatSync(runs).isSymbolicLink())) throw new Error("Invalid workflow directory.");
+    rmSync(join(runs, runId), { recursive: true, force: true });
+    this.db.prepare("UPDATE jobs.atk_deleted_sessions SET pending_run_id = NULL WHERE session_id = ?").run(sessionId);
+  }
+
+  private purgeRun(runId: string): void {
+    this.db.prepare("INSERT INTO execution.atk_deleted_run_owners VALUES (?)").run(runId);
+    // Older stores recorded artifact associations only in published checkpoint references.
+    this.db.prepare(`
+      WITH local(checkpoint) AS (
+        SELECT checkpoint_json FROM execution.atk_durable_checkpoints WHERE run_id = ?
+      ), candidates(id) AS (
+        SELECT artifact_id FROM execution.atk_artifact_owners WHERE run_id = ?
+        UNION SELECT json_extract(checkpoint, '$.input.manifestId') FROM local
+        UNION SELECT json_extract(ref.value, '$.id') FROM local, json_each(checkpoint, '$.input.artifacts') ref
+        UNION SELECT json_extract(ref.value, '$.id') FROM local, json_each(checkpoint, '$.committed.artifacts') ref
+        UNION SELECT json_extract(ref.value, '$.id') FROM local, json_each(checkpoint, '$.inputChange.retainedArtifacts') ref
+      ), retained(id) AS (
+        SELECT artifact_id FROM execution.atk_artifact_owners WHERE run_id != ?
+        UNION SELECT ref.atom FROM execution.atk_durable_checkpoints c, json_tree(c.checkpoint_json) ref
+              WHERE c.run_id != ? AND ref.type = 'text'
+      )
+      DELETE FROM execution.atk_durable_artifacts WHERE artifact_id IN
+        (SELECT id FROM candidates EXCEPT SELECT id FROM retained)
+    `).run(runId, runId, runId, runId);
+    this.db.prepare("DELETE FROM execution.atk_artifact_owners WHERE run_id = ?").run(runId);
+    this.db.prepare("DELETE FROM execution.atk_durable_attempts WHERE run_id = ?").run(runId);
+    this.db.prepare("DELETE FROM execution.atk_durable_checkpoints WHERE run_id = ?").run(runId);
+    this.db.prepare("DELETE FROM execution.atk_durable_runs WHERE run_id = ?").run(runId);
   }
 
   note(input: {sessionId: string; expectedVersion: number; summary: string; nextAction: string}): SessionRecord {

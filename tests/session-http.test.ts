@@ -40,7 +40,13 @@ describe("session HTTP transport", () => {
       expect(await status("dashboard.example", "http://dashboard.example")).toBe(403);
     } finally { await proxy.close(); }
   });
-  it("serves the public shell and authenticates every tool call", async () => {
+  it("serves session links and accepts bearer API clients", async () => {
+    const navigation = await new Promise<number | undefined>((resolve, reject) => {
+      request(base + "/app/sessions/abc", { headers: {
+        "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document",
+      } }, res => { res.resume(); resolve(res.statusCode); }).on("error", reject).end();
+    });
+    expect(navigation).toBe(200);
     expect((await fetch(base + "/app/sessions/abc")).headers.get("content-type")).toMatch(/html/);
     const path = "/api/tools/sample";
     expect((await post(path, {}, { authorization: "" })).status).toBe(401);
@@ -51,6 +57,25 @@ describe("session HTTP transport", () => {
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: { code: "SESSION_NOT_FOUND", message: "Missing session." } });
     expect((await post(path, { data: "x".repeat(8 * 1024 * 1024) })).status).toBe(413);
+  });
+  it("allows same-origin loopback dashboard calls while keeping MCP authenticated", async () => {
+    expect((await fetch(base + "/app")).status).toBe(200);
+    const dashboard = { authorization: "", origin: base, "x-atk-dashboard": "1", "sec-fetch-site": "same-origin" };
+    const path = "/api/tools/sample";
+    expect(await (await post(path, {}, dashboard)).json()).toEqual({ value: 42 });
+    expect((await post(path, {}, { ...dashboard, origin: "https://example.org" })).status).toBe(403);
+    expect((await post(path, {}, { ...dashboard, "x-forwarded-for": "127.0.0.1" })).status).toBe(401);
+    expect((await post(path, {}, { ...dashboard, "x-atk-dashboard": "" })).status).toBe(401);
+    expect((await post("/mcp", {}, dashboard)).status).toBe(401);
+  });
+  it("requires a bearer on exposed listeners even for local dashboard requests", async () => {
+    const exposed = await startSessionHttp(tools, { host: "0.0.0.0", port: 0, token: "test", version: "test" });
+    const origin = "http://127.0.0.1:" + exposed.port;
+    try {
+      const response = await fetch(origin + "/api/tools/sample", { method: "POST", body: "{}",
+        headers: { origin, "content-type": "application/json", "x-atk-dashboard": "1" } });
+      expect(response.status).toBe(401);
+    } finally { await exposed.close(); }
   });
   it("negotiates MCP and returns stateless tool results", async () => {
     const rpc = (method: string, params = {}) => ({ jsonrpc: "2.0", method, id: 1, params });

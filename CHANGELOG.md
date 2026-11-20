@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- List every local work session on dashboard entry, open verified artifacts inline, and delete a session with its saved data.
+
 - Run persistent task sessions over Streamable HTTP with a browser dashboard, versioned workspace files and guarded workflow resume.
 
 - Support domain-managed pipeline stages with validated work scopes and transitions, checkpointed outcomes, multiple artifacts, and atomic input generation changes.

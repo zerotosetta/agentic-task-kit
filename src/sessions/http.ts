@@ -95,6 +95,16 @@ function authority(host: string, port: number) {
   return new URL("http://" + (host.includes(":") ? "[" + host + "]" : host) + ":" + port).host;
 }
 
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
+function directDashboardRequest(req: IncomingMessage, host: string, port: number) {
+  if (!loopbackHosts.has(host) || !loopbackHosts.has(req.socket.remoteAddress ?? "")) return false;
+  const incoming = req.headers.host?.toLowerCase();
+  return Array.from(loopbackHosts).some(value => authority(value, port) === incoming) &&
+    req.headers.origin === "http://" + incoming && req.headers["x-atk-dashboard"] === "1" &&
+    (req.headers["sec-fetch-site"] === undefined || req.headers["sec-fetch-site"] === "same-origin") &&
+    !Object.keys(req.headers).some(key => key === "forwarded" || key === "via" || key === "x-real-ip" || key.startsWith("x-forwarded-"));
+}
+
 export async function startSessionHttp(tools: Tools, options: {
   host: string; port: number; token: string; origin?: string; version: string;
 }) {
@@ -111,7 +121,7 @@ export async function startSessionHttp(tools: Tools, options: {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
     try {
       const actualPort = req.socket.localPort!;
       const allowedHosts = new Set([authority(host, actualPort)]);
@@ -119,15 +129,17 @@ export async function startSessionHttp(tools: Tools, options: {
       if (["127.0.0.1", "localhost", "::1"].includes(host)) allowedHosts.add(authority("localhost", actualPort));
       if (external) allowedHosts.add(external.host);
       const incomingHost = req.headers.host?.toLowerCase();
+      const page = path === "/" || /^\/app(?:\/sessions\/[A-Za-z0-9_-]+)?\/?$/.test(path);
+      const navigation = page && req.method === "GET" && req.headers["sec-fetch-mode"] === "navigate" &&
+        req.headers["sec-fetch-dest"] === "document";
       if (!incomingHost || !allowedHosts.has(incomingHost) || (req.headers.origin !== undefined &&
           req.headers.origin !== (external ? external.origin : "http://" + incomingHost)) ||
-          req.headers["sec-fetch-site"] === "cross-site")
+          (req.headers["sec-fetch-site"] === "cross-site" && !navigation))
         throw new HttpError(403, "FORBIDDEN", "Host or origin is not allowed.");
-      const page = path === "/" || /^\/app(?:\/sessions\/[A-Za-z0-9_-]+)?\/?$/.test(path);
       const asset = page ? ["text/html", dashboardHtml] : assets.get(path);
       const name = /^\/api\/tools\/([A-Za-z0-9_-]+)$/.exec(path)?.[1];
       if (!asset && !mcp && !name) throw new HttpError(404, "NOT_FOUND", "Unknown endpoint.");
-      if (!asset) {
+      if (!asset && (mcp || external || !directDashboardRequest(req, host, actualPort))) {
         const credential = /^Bearer (.+)$/i.exec(req.headers.authorization ?? "")?.[1];
         if (!credential || !timingSafeEqual(digest(credential), expected)) {
           res.setHeader("WWW-Authenticate", 'Bearer realm="atk"');
@@ -163,7 +175,7 @@ export async function startSessionHttp(tools: Tools, options: {
       const { code, message } = toolError(error);
       const detail = { code, message };
       const status = error instanceof HttpError ? error.status : detail.code.endsWith("NOT_FOUND") ? 404 :
-        /CONFLICT|STALE|ALREADY|MISMATCH/.test(detail.code) ? 409 : detail.code === "INTERNAL_ERROR" ? 500 : 400;
+        /CONFLICT|STALE|ALREADY|MISMATCH|^RUN_ACTIVE$/.test(detail.code) ? 409 : detail.code === "INTERNAL_ERROR" ? 500 : 400;
       if (!req.complete) req.resume();
       if (mcp) json(res, status, { jsonrpc: "2.0", id: null, error: { code: detail.code === "INVALID_JSON" ? -32700 : -32000, message: detail.message } });
       else json(res, status, { error: detail });

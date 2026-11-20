@@ -40,7 +40,12 @@ class OwnedWorkflowStore extends SqliteDurableExecutionStore {
     private readonly runId: string,
     private readonly token: string,
   ) {
-    super(config.executionDatabase, { leaseMs: config.leaseMs });
+    super(config.executionDatabase, { leaseMs: config.leaseMs }, runId);
+  }
+
+  override async putArtifact(...args: Parameters<DurableExecutionStore["putArtifact"]>) {
+    this.assertOwned();
+    return super.putArtifact(...args);
   }
 
   reportProgress(update: McpWorkflowProgressUpdate): void {

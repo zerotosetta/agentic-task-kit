@@ -51,7 +51,9 @@ async function post(url, value, requestHeaders = headers) {
 }
 
 async function web(origin, tool, args) {
-  const response = await post(origin + "/api/tools/" + tool, args);
+  const response = await post(origin + "/api/tools/" + tool, args, {
+    "content-type": "application/json", origin, "x-atk-dashboard": "1",
+  });
   const body = await response.json();
   assert.equal(response.status, 200, JSON.stringify(body));
   return body;
@@ -149,6 +151,9 @@ export const {descriptor, createWorkflow} = definePipeline({
   };
   const active = await waitFor(call, await findSession(), "running");
   assert.equal(active.run.runId, runId);
+  const busyDelete = await post(origin + "/api/tools/session_delete", {sessionId, expectedVersion: active.session.version});
+  assert.equal(busyDelete.status, 409);
+  assert.equal((await busyDelete.json()).error.code, "RUN_ACTIVE");
   await stop();
   await writeFile(join(app, "continue"), "continue the detached worker");
   origin = await serve();
@@ -211,7 +216,22 @@ export const {descriptor, createWorkflow} = definePipeline({
   const steps = (await readFile(join(app,"workers.log"),"utf8")).trim().split(/\r?\n/).map(line=>JSON.parse(line));
   assert.deepEqual(steps.map(step=>step.key), ["prepare","publish"]);
   assert.ok(steps[0].pid !== firstPid && steps[1].pid !== secondPid, "Expected separate worker processes.");
-  console.log("Installed session service passed client handoff, server restart, guarded resume, workspace recovery and artifact verification. SHA-256: " + ref.sha256);
+  const beforeDelete = await web(origin, "session_list", {});
+  assert.deepEqual(new Set(beforeDelete.sessions.map(row => row.sessionId)), new Set([sessionId, other.sessionId]));
+  const staleDelete = await post(origin + "/api/tools/session_delete", {sessionId, expectedVersion: version});
+  assert.equal(staleDelete.status, 409);
+  await web(origin, "session_delete", {sessionId, expectedVersion: done.session.version});
+  await stop();
+  origin = await serve();
+  assert.deepEqual((await web(origin, "session_list", {})).sessions.map(row => row.sessionId), [other.sessionId]);
+  for (const [tool, params] of [
+    ["session_context", {sessionId}],
+    ["workspace_read", {sessionId, path: file.path, version: 1}],
+    ["workflow_results", {sessionId, runId, artifactId: ref.id}],
+  ]) {
+    assert.equal((await post(origin + "/api/tools/" + tool, params)).status, 404);
+  }
+  console.log("Installed session service passed client handoff, restart, guarded resume, token-free browser access, artifact verification and scoped deletion. SHA-256: " + ref.sha256);
 } finally {
   await stop();
   await rm(temp,{recursive:true,force:true,maxRetries:8,retryDelay:150});
