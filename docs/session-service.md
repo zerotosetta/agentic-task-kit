@@ -2,7 +2,22 @@
 
 에이전트는 `/mcp`로 접속하고 사람은 `/app`을 연다. 세션의 목표, 마지막 인계, 파일 버전, 워크플로 체크포인트와 발행 결과가 서버의 `stateDirectory`에 남는다. 에이전트가 바뀌면 업무명으로 검색해서 이어갈 수 있다.
 
-## 실행
+## 독립 실행
+
+Windows x64에서는 `atk-session-service-0.2.0-sdk.5-win-x64.zip`을 쓰기 가능한 폴더에 풀고 **start-atk.cmd**를 실행한다. ZIP 안의 Node.js로 MCP와 웹을 함께 제공한다. 기본 웹 주소는 `http://127.0.0.1:4317/app`, MCP 주소는 `http://127.0.0.1:4317/mcp`다. 처음 실행할 때 생성되는 `data/access-token.txt`의 값을 MCP 클라이언트의 Bearer 토큰으로 사용한다. 같은 `data` 폴더로 다시 실행하면 파일 버전, 발행된 산출물과 이력이 복원된다.
+
+Node.js 22.13 이상을 사용하는 환경에서는 SDK 압축 패키지를 새 폴더에 설치할 수 있다. 아래 명령은 워크플로 프로필 없이 세션 저장소를 연다. 서버에 공급한 토큰은 재시작할 때도 같은 값을 사용한다.
+
+```powershell
+$packageFile = (Resolve-Path .\agentic-task-kit-0.2.0-sdk.5.tgz).Path
+npm install --offline --ignore-scripts --no-audit --no-fund $packageFile
+$env:ATK_SERVICE_TOKEN = node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))"
+npx --no-install atk-mcp serve --state ./data
+```
+
+이 저장소에서 배포 파일을 다시 만들 때 Windows x64 ZIP은 `npm run pack:windows`, SDK tgz는 `npm run pack:all-in-one`을 사용한다. ZIP은 `out/pipeline-sdk`에 생성된다. 패키징 환경에 Node.js의 라이선스 파일이 없으면 해당 런타임 버전의 공식 LICENSE를 받아 포함한다. 오프라인 패키징에서는 `ATK_NODE_LICENSE_FILE`에 해당 파일 경로를 지정한다.
+
+## 워크플로와 함께 실행
 
 Node.js 22.13 이상과 ATK 패키지를 설치한 프로젝트에서 실행한다. 기존 파이프라인의 MCP 설정 파일을 그대로 사용한다. 새 프로젝트에서는 `atk-mcp init`으로 프로젝트를 만들고 패키지 설치 후 `npm run setup`을 실행하면 예제 `atk-mcp.json`이 생성된다. [파이프라인 시작 가이드](./pipeline-sdk.md)
 
@@ -25,6 +40,25 @@ npx --no-install atk-mcp serve --config ./atk-mcp.json --host 127.0.0.1 --port 4
 서비스는 한 팀의 작업공간을 제공한다. 기본 루프백 주소에서는 이 PC의 사용자가 모든 세션을 열고 변경하거나 삭제할 수 있다. 다른 PC에 웹을 제공할 때는 HTTPS 역방향 프록시에 사용자 인증을 구성하고 `ATK_SERVICE_ORIGIN`에 외부 origin(예: `https://atk.example.org`)을 지정한다. 프록시는 원래 Host를 보존하고 인증을 통과한 웹 사용자의 `/api/tools/*` 요청에 서버 측에서 Bearer 토큰을 설정한다. 에이전트의 `/mcp` 연결에는 해당 클라이언트의 인증 헤더를 전달한다.
 
 ## 첫 에이전트와 다음 에이전트
+
+### 에이전트가 직접 작성한 산출물
+
+아래 예시는 MCP `tools/call`의 도구명과 인수다. `S`는 생성하거나 찾은 세션 ID, `P`는 발행 응답의 `publicationId`로 바꾼다.
+
+| 작업 | 도구 | 인수 예시 |
+| --- | --- | --- |
+| 세션 생성 | `session_create` | `{"title":"분석 보고서","goal":"검토한 분석 결과 인계","idempotencyKey":"report-07"}` |
+| 파일 1판 저장 | `workspace_write` | `{"sessionId":"S","path":"보고서.md","expectedVersion":0,"content":"# 검토 결과\n확인한 항목 3개","actor":"분석 에이전트","stage":"분석","reason":"검토 결과를 초안으로 저장"}` |
+| 중간본 발행 | `artifact_publish` | `{"sessionId":"S","path":"보고서.md","version":1,"role":"intermediate","actor":"분석 에이전트","stage":"분석","reason":"검토자에게 초안 전달","idempotencyKey":"draft-1"}` |
+| 최종본 발행 | `artifact_publish` | 파일을 `expectedVersion: 1`로 수정해 2판을 받은 뒤 `{"sessionId":"S","path":"보고서.md","version":2,"role":"final","actor":"검토 에이전트","stage":"검토","reason":"검토 의견 반영 완료","idempotencyKey":"final-2"}` |
+| 발행본 목록과 본문 | `artifact_list`, `artifact_read` | `{"sessionId":"S"}`로 목록을 조회하고 `{"sessionId":"S","publicationId":"P"}`로 고정된 본문과 SHA-256을 읽는다. |
+| 변경 이력 | `session_history` | `{"sessionId":"S","limit":25}`로 최근 이력을 읽는다. 다음 페이지는 응답의 `nextBeforeSeq`를 `beforeSeq`로 전달한다. |
+
+파일의 3판을 저장해도 이미 발행한 2판의 내용은 유지된다. 같은 발행 요청을 재전송할 때는 같은 `idempotencyKey`를 사용한다. 다음 에이전트는 `session_context.workspacePublications`에서 발행 ID와 버전을 찾을 수 있다. 사람은 같은 세션의 **중간 산출물**, **최종 결과물**, **작업 이력**에서 확인한다.
+
+작업 이력에는 파일 저장, 인계 메모 수정과 산출물 발행이 시간순으로 남는다. `actor`는 호출자가 기록한 표시 이름이며 서비스 인증은 인스턴스의 공유 토큰으로 수행한다. `workspace_write`와 `session_note`에도 `actor`, `stage`, `reason`을 전달할 수 있다. 이전 버전의 파일과 메모도 이력에 포함되며 당시 기록되지 않은 작성 정보는 비어 있다. 직접 발행할 수 있는 파일은 작업공간에서 지원하는 UTF-8 텍스트로, 파일 버전당 최대 1 MiB다.
+
+### 워크플로가 생성한 산출물
 
 아래는 MCP `tools/call`로 전달하는 도구명과 인수의 예다. `S`와 `R`은 앞 호출에서 받은 실제 ID로 대체한다.
 

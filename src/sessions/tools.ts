@@ -9,6 +9,8 @@ import { SessionStore } from "./store.js";
 const str = { type: "string" } as const;
 const int = { type: "integer" } as const;
 const sessionId = str;
+const provenance = { actor: str, stage: str, reason: str };
+const publicationRole = { type: "string", enum: ["intermediate", "final"] } as const;
 
 function object<const P extends Record<string, PipelineSchema>, const K extends readonly (keyof P & string)[]>(
   properties: P, required: K,
@@ -75,34 +77,45 @@ export class SessionTools {
           }));
           return { sessions, nextOffset: rows.length > limit ? offset + limit : null };
         }),
-      method("session_context", "Recover the goal, handoff, files, active run, next action and final artifacts. completedStages includes historical commits across reruns and input generations. Use run and progress for current execution.",
+      method("session_context", "Recover the goal, handoff, files, pinned workspacePublications, active run and workflow publications. Use session_history for who changed what and why. completedStages includes historical commits across reruns and input generations.",
         object({ sessionId }, ["sessionId"]), true, async args => {
           const session = this.sessions.get(args.sessionId);
           const view = await this.workflows.sessionView(session.sessionId, true);
           const { run, progress } = view;
-          const allowedActions = ["session_note", "workspace_write", "workspace_read"];
+          const allowedActions = ["session_note", "workspace_write", "workspace_read", "artifact_publish", "artifact_list", "artifact_read", "session_history"];
           if (run) {
             allowedActions.push("workflow_results", "workflow_progress");
             if (run.nextAction.action === "resume") allowedActions.push("workflow_resume");
             if (run.status === "queued" || run.status === "running") allowedActions.push("workflow_cancel");
             else if (run.checkpointSeq !== null && run.nextAction.action !== "status") allowedActions.push("workflow_rerun");
-          } else allowedActions.push("workflow_start");
+          } else if (config.profiles.size) allowedActions.push("workflow_start");
           return { session, ...view, run: withSessionAction(run, session.sessionId),
-            progress: withSessionAction(progress, session.sessionId, run?.inputSha256), files: this.sessions.listFiles(args.sessionId), allowedActions };
+            progress: withSessionAction(progress, session.sessionId, run?.inputSha256), files: this.sessions.listFiles(args.sessionId),
+            workspacePublications: this.sessions.listPublications(session.sessionId), allowedActions };
         }),
       method("session_delete", "Permanently delete a session and its saved work at the observed note version. An active workflow must finish or be cancelled first.",
         object({ sessionId, expectedVersion: int }, ["sessionId", "expectedVersion"]), false,
         args => this.sessions.delete(args, config)),
       method("session_note", "Save a handoff summary and next action against the last observed note version.",
-        object({ sessionId, expectedVersion: int, summary: str, nextAction: str }, ["sessionId", "expectedVersion", "summary", "nextAction"]),
+        object({ sessionId, expectedVersion: int, summary: str, nextAction: str, ...provenance }, ["sessionId", "expectedVersion", "summary", "nextAction"]),
         false, args => this.sessions.note(args)),
       method("workspace_list", "List the current version, size and SHA-256 of each saved text file.",
         object({ sessionId }, ["sessionId"]), true, args => ({ files: this.sessions.listFiles(args.sessionId) })),
       method("workspace_read", "Read a saved UTF-8 file, optionally at an earlier version.",
         object({ sessionId, path: str, version: int }, ["sessionId", "path"]), true, args => this.sessions.readFile(args)),
       method("workspace_write", "Save UTF-8 text. Use expectedVersion 0 to create, or the version read to update.",
-        object({ sessionId, path: str, expectedVersion: int, content: str }, ["sessionId", "path", "expectedVersion", "content"]),
+        object({ sessionId, path: str, expectedVersion: int, content: str, ...provenance }, ["sessionId", "path", "expectedVersion", "content"]),
         false, args => this.sessions.writeFile(args)),
+      method("artifact_publish", "Register an exact workspace file version as an intermediate or final session artifact. Supply the author, stage and reason. Reuse the idempotencyKey when retrying.",
+        object({ sessionId, path: str, version: int, role: publicationRole, ...provenance, idempotencyKey: str },
+          ["sessionId", "path", "version", "role", "actor", "stage", "reason", "idempotencyKey"]),
+        false, args => this.sessions.publish(args)),
+      method("artifact_list", "List published workspace artifacts, including their pinned versions, roles, SHA-256 and publication IDs.",
+        object({ sessionId }, ["sessionId"]), true, args => ({ publications: this.sessions.listPublications(args.sessionId) })),
+      method("artifact_read", "Read the pinned UTF-8 content and metadata of a workspace publication in its session.",
+        object({ sessionId, publicationId: str }, ["sessionId", "publicationId"]), true, args => this.sessions.readPublication(args)),
+      method("session_history", "Read work history newest first. Supply nextBeforeSeq as beforeSeq on the next call. Historical changes can have unknown authors.",
+        object({ sessionId, beforeSeq: int, limit: int }, ["sessionId"]), true, args => this.sessions.history(args)),
     ];
   }
 

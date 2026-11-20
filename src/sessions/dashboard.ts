@@ -102,16 +102,35 @@ export const dashboardScript = String.raw`
 
   }
   function detail() {
-    $('view').innerHTML = '<nav id="back"></nav><h1 id="title">세션 불러오는 중…</h1><p id="goal" class="text"></p><div class="tools"><button id="refresh">새로고침</button><span id="deleteAction"></span></div><section class="panel"><h2>실행 현황</h2><div id="progress"></div></section><section class="panel"><h2>인계 메모</h2><div id="notes"></div><form id="noteEdit" hidden><label>요약<textarea id="summary"></textarea></label><label>다음 작업<textarea id="next"></textarea></label><div class="tools"><button class="primary">저장</button><button id="cancelNote" type="button">닫기</button></div></form></section><section class="panel"><h2>작업 파일</h2><div id="files"></div><form id="editor" hidden><label>파일 경로<input id="path" required></label><label>내용<textarea id="content" spellcheck="false"></textarea></label><div class="tools"><button class="primary">새 버전 저장</button><button id="closeFile" type="button">닫기</button></div></form></section><section class="panel"><h2>최종 결과물</h2><div id="finals"></div></section><section class="panel"><h2>중간 산출물</h2><div id="artifacts"></div></section>';
+    $('view').innerHTML = '<nav id="back"></nav><h1 id="title">세션 불러오는 중…</h1><p id="goal" class="text"></p><div class="tools"><button id="refresh">새로고침</button><span id="deleteAction"></span></div><section class="panel"><h2>실행 현황</h2><div id="progress"></div></section><section class="panel"><h2>인계 메모</h2><div id="notes"></div><form id="noteEdit" hidden><label>요약<textarea id="summary"></textarea></label><label>다음 작업<textarea id="next"></textarea></label><div class="tools"><button class="primary">저장</button><button id="cancelNote" type="button">닫기</button></div></form></section><section class="panel"><h2>작업 파일</h2><div id="files"></div><form id="editor" hidden><label>파일 경로<input id="path" required></label><label>내용<textarea id="content" spellcheck="false"></textarea></label><div class="tools"><button class="primary">새 버전 저장</button><button id="closeFile" type="button">닫기</button></div></form></section><section class="panel"><h2>최종 결과물</h2><div id="finals"></div></section><section class="panel"><h2>중간 산출물</h2><div id="artifacts"></div></section><section class="panel"><h2>작업 이력</h2><div id="audit"></div></section>';
     $('back').append(relative('/','← 세션 목록')); $('refresh').onclick=()=>refresh();
+    const audit=$('audit'), events=el('div'), historyButton=act('이력 보기',loadHistory);
+    let beforeSeq;
+    audit.append(events,historyButton);
+    async function loadHistory(){
+      const started=epoch;
+      const page=await call('session_history',{sessionId,beforeSeq,limit:30});
+      if(started!==epoch)return;
+      if(beforeSeq===undefined)events.replaceChildren();
+      const labels={workspace_write:'파일 저장',note_edit:'메모 수정',artifact_publish:'산출물 게시'};
+      for(const e of page.events){
+        const row=el('div',undefined,'item'), role=e.role==='final'?'최종 결과물':e.role==='intermediate'?'중간 산출물':'';
+        row.append(el('strong','#'+e.seq+' '+(labels[e.type] || e.type)),el('p',[date(e.createdAt),e.actor && '작성자 '+e.actor,e.stage && '단계 '+e.stage,e.path,e.version!=null && '버전 '+e.version,role,e.publicationId].filter(Boolean).join(' · '),'meta'));
+        if(e.reason)row.append(el('p',e.reason,'text'));
+        events.append(row);
+      }
+      if(!events.hasChildNodes())events.append(el('p','기록된 이력이 없습니다.','muted'));
+      beforeSeq=page.nextBeforeSeq ?? undefined;
+      historyButton.textContent=beforeSeq===undefined?'이력 새로고침':'이전 이력 더 보기';
+    }
     $('cancelNote').onclick=()=>{$('noteEdit').hidden=true;};
     $('closeFile').onclick=()=>{if(!edit || $('content').value===edit.content || confirm('파일 편집을 닫을까요?')){edit=null;$('editor').hidden=true;loadingFiles++;}};
     $('noteEdit').onsubmit=e=>{e.preventDefault(); const started=epoch; task(e.submitter,async()=>{
-      await call('session_note',{sessionId,expectedVersion:noteVersion,summary:$('summary').value,nextAction:$('next').value});
+      await call('session_note',{sessionId,actor:'웹 사용자',expectedVersion:noteVersion,summary:$('summary').value,nextAction:$('next').value});
       if(started!==epoch)return; $('noteEdit').hidden=true;notice('인계 메모를 저장했습니다.');await refresh(true);
     });};
     $('editor').onsubmit=e=>{e.preventDefault(); const started=epoch; task(e.submitter,async()=>{
-      await call('workspace_write',{sessionId,path:$('path').value,expectedVersion:edit.version,content:$('content').value});
+      await call('workspace_write',{sessionId,actor:'웹 사용자',path:$('path').value,expectedVersion:edit.version,content:$('content').value});
       if(started!==epoch)return; edit=null;$('editor').hidden=true;notice('파일을 저장했습니다.');await refresh(true);
     });};
   }
@@ -173,30 +192,61 @@ export const dashboardScript = String.raw`
       }
       box.append(act('새 파일',()=>{if(edit && $('content').value!==edit.content && !confirm('편집 중인 파일을 닫을까요?'))return;loadingFiles++;openEditor('',0,'');}));
     });
-    paint('finals',[data.publications,run?.runId],box=>artifactList(box,data.publications,run,'게시된 최종 결과물이 없습니다.'));
+    const finals=[...data.publications,...publishedFiles(data,'final')];
+    artifactList($('finals'),finals,run,'게시된 최종 결과물이 없습니다.');
   }
   function openEditor(path,version,content) {
     edit={version,content};$('editor').hidden=false;$('path').readOnly=!!path;$('path').value=path;$('content').value=content;$(path?'content':'path').focus();
   }
+  function publishedFiles(data,role) {
+    return (data.workspacePublications || []).filter(p=>p.role===role).map(p=>({name:p.path,artifact:p}));
+  }
   function artifactList(box,refs,run,empty) {
-    if(!refs.length)box.append(el('p',empty,'muted'));
+    const old=new Map(Array.from(box.children,row=>[row.dataset.artifactKey,row]));
+    if(!refs.length && !old.has('empty')){
+      const message=el('p',empty,'muted');message.dataset.artifactKey='empty';box.append(message);
+    }
+    if(!refs.length)old.delete('empty');
+    let index=0;
     for(const {name,artifact} of refs){
-      const row=el('div',undefined,'item');row.append(el('strong',name),el('p',(name===artifact.kind?'':artifact.kind+' · ')+'SHA-256 '+artifact.sha256,'meta'));
-      if(run){
+      const key=JSON.stringify([artifact.publicationId?null:run?.runId,name,artifact]);
+      const existing=old.get(key);
+      if(existing){
+        old.delete(key);
+        if(box.children[index]!==existing)box.insertBefore(existing,box.children[index] || null);
+        index++;continue;
+      }
+      const row=el('div',undefined,'item');row.append(el('strong',name));
+      if(artifact.publicationId){
+        row.append(el('p',['버전 '+artifact.version,artifact.actor && '작성자 '+artifact.actor,artifact.stage && '단계 '+artifact.stage,date(artifact.createdAt)].filter(Boolean).join(' · '),'meta'));
+        if(artifact.reason)row.append(el('p',artifact.reason,'text'));
+      }
+      row.append(el('p',(artifact.kind && name!==artifact.kind?artifact.kind+' · ':'')+'SHA-256 '+artifact.sha256,'meta'));
+      if(run || artifact.publicationId){
         const reader=el('div',undefined,'reader'),controls=el('div',undefined,'tools');
         const toggle=act('내용 보기',async()=>{
           if(reader.hasChildNodes()){releaseImages(reader);reader.replaceChildren();toggle.textContent='내용 보기';return;}
-          const bytes=await readArtifact(sessionId,run.runId,artifact);
+          const bytes=await readArtifact(sessionId,run?.runId,artifact);
           if(!bytes || !row.isConnected)return;
           renderArtifact(reader,name,artifact,bytes);toggle.textContent='내용 닫기';
         });
-        controls.append(toggle,act('검증 후 다운로드',()=>download(sessionId,run.runId,name,artifact)));row.append(controls,reader);
+        controls.append(toggle,act('검증 후 다운로드',()=>download(sessionId,run?.runId,name,artifact)));row.append(controls,reader);
       }
-      box.append(row);
+      row.dataset.artifactKey=key;box.insertBefore(row,box.children[index++] || null);
     }
+    for(const row of old.values()){releaseImages(row);row.remove();}
   }
   async function readArtifact(sid,runId,ref) {
     const started=epoch;
+    if(ref.publicationId){
+      const result=await call('artifact_read',{sessionId:sid,publicationId:ref.publicationId});
+      if(started!==epoch)return;
+      if(result.sessionId!==sid || ['publicationId','path','version','role','sha256','size'].some(key=>result[key]!==ref[key]) || typeof result.content!=='string')throw Error('게시된 파일 정보가 일치하지 않습니다.');
+      const bytes=new TextEncoder().encode(result.content);
+      await verifyArtifact(bytes,ref,ref.size);
+      if(started===epoch)return bytes;
+      return;
+    }
     let cursor,offset=0,bytes,seq;
     const seen=new Set();
     do {
@@ -208,10 +258,13 @@ export const dashboardScript = String.raw`
       if(cursor!==null && (!cursor || seen.has(cursor) || !chunk.length))throw Error('결과물 페이지가 올바르지 않습니다.');
       seen.add(cursor);
     }while(cursor!==null);
+    await verifyArtifact(bytes,ref,offset);
+    if(started===epoch)return bytes;
+  }
+  async function verifyArtifact(bytes,ref,offset){
     const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
     if(bytes.length!==offset || hash!==ref.sha256)throw Error('결과물의 SHA-256 검증에 실패했습니다.');
-    if(started!==epoch)return;
-    return bytes;
+
   }
   function imageType(bytes){
     const starts=(signature,offset=0)=>signature.every((v,i)=>bytes[offset+i]===v);
@@ -267,7 +320,7 @@ export const dashboardScript = String.raw`
     notice('SHA-256 검증을 마치고 다운로드를 시작했습니다.');
   }
   async function loadArtifacts(data,started) {
-    const run=data.run,key=JSON.stringify([run?.runId,run?.checkpointSeq,data.publications]);
+    const run=data.run,key=JSON.stringify([run?.runId,run?.checkpointSeq,data.publications,data.workspacePublications]);
     if(key===artifactKey)return;
     const ids=new Set(data.publications.map(x=>x.artifact.id)),refs=[],seen=new Set();
     let cursor;
@@ -281,7 +334,8 @@ export const dashboardScript = String.raw`
       if(cursor!==null && (!cursor || seen.has(cursor)))throw Error('산출물 페이지가 올바르지 않습니다.');
       seen.add(cursor);
     }while(cursor!==null);
-    paint('artifacts',[refs,run?.runId],box=>artifactList(box,refs,run,'확정된 중간 산출물이 없습니다.'));artifactKey=key;
+    refs.push(...publishedFiles(data,'intermediate'));
+    artifactList($('artifacts'),refs,run,'확정된 중간 산출물이 없습니다.');artifactKey=key;
   }
   async function refresh(force=false) {
     if(busy && !force)return;

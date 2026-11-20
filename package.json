@@ -1,6 +1,6 @@
 {
   "name": "agentic-task-kit",
-  "version": "0.2.0-sdk.4",
+  "version": "0.2.0-sdk.5",
   "description": "Cycle foundation MVP for implementing AX Workflow in Node.js and TypeScript.",
   "type": "module",
   "repository": {
@@ -35,7 +35,8 @@
     "docs/mcp-workflows.md",
     "docs/pipeline-sdk.md",
     "docs/session-service.md",
-    "templates/pipeline"
+    "templates/pipeline",
+    "templates/session-service.json"
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -46,6 +47,7 @@
     "release:prepare-version": "node ./scripts/prepare-release-version.mjs",
     "release:update-changelog": "node ./scripts/update-changelog.mjs",
     "pack:all-in-one": "npm run build:all-in-one && npm pack ./.npm-package",
+    "pack:windows": "npm run build:all-in-one && node scripts/build-windows-service.mjs",
     "publish:all-in-one": "npm run build:all-in-one && npm publish ./.npm-package --access public",
     "publish:all-in-one:dry-run": "npm run build:all-in-one && npm publish ./.npm-package --access public --dry-run",
     "build": "npm run clean && npm run build:types && npm run build:bundle",

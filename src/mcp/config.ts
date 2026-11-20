@@ -57,14 +57,14 @@ function parseOperations(value: unknown): PipelineOperationDescriptor[] {
   });
 }
 
-export function loadMcpConfig(configPath: string): McpConfig {
+export function loadMcpConfig(configPath: string, options: { allowEmptyProfiles?: boolean; stateDirectory?: string } = {}): McpConfig {
   configPath = resolve(configPath);
   const config: unknown = JSON.parse(readFileSync(configPath, "utf8").replace(/^\uFEFF/u, ""));
   if (!isRecord(config) || !hasText(config.stateDirectory) || !isRecord(config.profiles)) {
     throw new McpWorkflowError("INVALID_CONFIG", "The configuration requires stateDirectory and profiles.");
   }
   const base = dirname(configPath);
-  const stateDirectory = resolve(base, config.stateDirectory);
+  const stateDirectory = options.stateDirectory === undefined ? resolve(base, config.stateDirectory) : resolve(options.stateDirectory);
   const profiles = new Map<string, McpWorkflowProfile>();
   for (const [name, value] of Object.entries(config.profiles)) {
     if (name.length > 128) throw new McpWorkflowError("INVALID_CONFIG", "Profile names support up to 128 characters.");
@@ -103,7 +103,7 @@ export function loadMcpConfig(configPath: string): McpConfig {
       ...(value.stageOrder === undefined ? {} : { stageOrder: parseStageOrder(value.stageOrder) }),
     });
   }
-  if (!profiles.size) throw new McpWorkflowError("INVALID_CONFIG", "Register at least one workflow profile.");
+  if (!profiles.size && !options.allowEmptyProfiles) throw new McpWorkflowError("INVALID_CONFIG", "Register at least one workflow profile.");
   const leaseMs = duration(config.leaseMs, 30_000, "leaseMs");
   return {
     configPath,

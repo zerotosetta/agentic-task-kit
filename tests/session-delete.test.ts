@@ -23,6 +23,11 @@ it("deletes owned history, preserves shared bytes, fences stale launches and rep
     for (const expectedVersion of [0, 1]) {
       sessions.writeFile({sessionId, path: "a", expectedVersion, content: String(expectedVersion)});
     }
+    const published = {sessionId, path: "a", version: 1, role: "final" as const, actor: "agent",
+      stage: "review", reason: "approved", idempotencyKey: "result"};
+    sessions.publish(published);
+    sessions.writeFile({sessionId: neighbor.sessionId, path: "a", expectedVersion: 0, content: "neighbor"});
+    const retained = sessions.publish({...published, sessionId: neighbor.sessionId});
     const job = {runId, sessionId, profile: "p", profileFingerprint: "", request: {}, requestFingerprint: "",
       idempotencyKey: "k", token: "t", status: "queued" as const, cancelRequested: false, error: null, rerun: null};
     jobs.start(job, 60000);
@@ -48,6 +53,14 @@ it("deletes owned history, preserves shared bytes, fences stale launches and rep
     expect(remove()).toEqual({sessionId, deleted: true});
     expect(existsSync(nested)).toBe(false);
     expect(sessions.list()).toEqual([neighbor]);
+    expect(sessions.readPublication(retained)).toMatchObject({content: "neighbor"});
+    expect(sessions.history({sessionId: neighbor.sessionId}).events).toHaveLength(2);
+    const records = new DatabaseSync(join(dir, "sessions.sqlite"));
+    try {
+      for (const table of ["session_history", "publications"]) {
+        expect(records.prepare("SELECT 1 FROM " + table + " WHERE sessionId = ?").get(sessionId)).toBeUndefined();
+      }
+    } finally { records.close(); }
     expect(() => sessions.create({title: "target", goal: "goal", idempotencyKey: "a"})).toThrowError(expect.objectContaining({code: "SESSION_NOT_FOUND"}));
     await expect(execution.putArtifact("stale", Uint8Array.of(3))).rejects.toThrow("deleted");
     expect(jobs.readBySession(sessionId)).toBeNull();

@@ -9,25 +9,29 @@ import { runMcpWorker } from "./worker.js";
 import { startSessionHttp } from "../sessions/http.js";
 import { SessionTools } from "../sessions/tools.js";
 
-const usage = "Usage: atk-mcp --config <config.json> | atk-mcp init <empty-directory> | atk-mcp serve --config <config.json> [--host <address>] [--port <port>]";
+const usage = "Usage: atk-mcp --config <config.json> | atk-mcp init <empty-directory> | atk-mcp serve (--state <directory> | --config <config.json>) [--host <address>] [--port <port>]";
 
 async function serve(args: string[]) {
   const flags = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
     const flag = args[i];
     const value = args[i + 1];
-    if (!flag || !["--config", "--port", "--host"].includes(flag) || flags.has(flag) || !value || value.startsWith("--"))
+    if (!flag || !["--config", "--state", "--port", "--host"].includes(flag) || flags.has(flag) || !value || value.startsWith("--"))
       throw new Error(usage);
     flags.set(flag, value);
   }
   const configPath = flags.get("--config");
-  if (!configPath) throw new Error(usage);
+  const stateDirectory = flags.get("--state");
+  if (!!configPath === !!stateDirectory) throw new Error(usage);
   const host = flags.get("--host") ?? "127.0.0.1";
   const port = flags.get("--port") ?? "4317";
   if (!/^\d+$/.test(port) || Number(port) > 65535) throw new Error("--port must be between 0 and 65535.");
   const token = process.env.ATK_SERVICE_TOKEN;
   if (!token) throw new Error("Set ATK_SERVICE_TOKEN before starting the HTTP service.");
-  const service = new SessionTools(loadMcpConfig(configPath), fileURLToPath(import.meta.url));
+  const config = loadMcpConfig(configPath ?? fileURLToPath(new URL("../templates/session-service.json", import.meta.url)), {
+    allowEmptyProfiles: true, ...(stateDirectory && { stateDirectory }),
+  });
+  const service = new SessionTools(config, fileURLToPath(import.meta.url));
   try {
     const origin = process.env.ATK_SERVICE_ORIGIN;
     const listener = await startSessionHttp(service, {

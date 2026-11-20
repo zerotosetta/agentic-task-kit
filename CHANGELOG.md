@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Publish pinned workspace file revisions as intermediate or final session artifacts, read their contents and provenance, and browse persistent work history. Run the service without a workflow profile using the SDK or the self-contained Windows x64 ZIP.
+
 - List every local work session on dashboard entry, open verified artifacts inline, and delete a session with its saved data.
 
 - Run persistent task sessions over Streamable HTTP with a browser dashboard, versioned workspace files and guarded workflow resume.

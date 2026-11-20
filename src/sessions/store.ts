@@ -28,6 +28,40 @@ export interface SessionFile extends SessionFileMetadata {
   content: string;
 }
 
+interface Attribution { actor?: string; stage?: string; reason?: string }
+
+export interface SessionPublication extends Required<Attribution> {
+  publicationId: string;
+  sessionId: string;
+  path: string;
+  version: number;
+  role: "intermediate" | "final";
+  sha256: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface SessionHistoryEvent {
+  sessionId: string;
+  seq: number;
+  type: "workspace_write" | "note_edit" | "artifact_publish";
+  path: string | null;
+  version: number;
+  publicationId: string | null;
+  role: SessionPublication["role"] | null;
+  sha256: string | null;
+  actor: string | null;
+  stage: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+function validateAttribution(input: Attribution, required = false): void {
+  for (const key of ["actor", "stage", "reason"] as const) {
+    if (required || input[key] !== undefined) string(input[key], key, key === "reason" ? 4096 : 256);
+  }
+}
+
 function invalid(message: string): never {
   throw new McpWorkflowError("INVALID_ARGUMENT", message);
 }
@@ -65,6 +99,10 @@ const sessions = " FROM sessions s JOIN notes n ON s.sessionId = n.sessionId ";
 const latest = "n.version = (SELECT MAX(version) FROM notes WHERE sessionId = s.sessionId)";
 const metadata = "path, version, sha256, size, updatedAt";
 
+const publicationQuery = (includeContent = false) => `SELECT p.publicationId, p.sessionId, p.path, p.version,
+  p.role, p.actor, p.stage, p.reason, f.sha256, f.size, p.createdAt${includeContent ? ", f.content" : ""}
+  FROM publications p JOIN files f USING(sessionId, path, version)`;
+
 export class SessionStore {
   private readonly db: DatabaseSync;
 
@@ -75,7 +113,9 @@ export class SessionStore {
     this.db = new sqlite.DatabaseSync(join(stateDirectory, "sessions.sqlite"));
     try {
       this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
-      this.transaction(() => this.db.exec(`
+      this.transaction(() => {
+        const backfill = !this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_history'").get();
+        this.db.exec(`
         CREATE TABLE IF NOT EXISTS deleted_creation_keys (digest TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS sessions (
           sessionId TEXT PRIMARY KEY, title TEXT NOT NULL, goal TEXT NOT NULL,
@@ -90,7 +130,27 @@ export class SessionStore {
           sha256 TEXT NOT NULL, size INTEGER NOT NULL, updatedAt TEXT NOT NULL, content TEXT NOT NULL,
           PRIMARY KEY(sessionId, path, version)
         );
-      `));
+        CREATE TABLE IF NOT EXISTS publications (
+          publicationId TEXT PRIMARY KEY, sessionId TEXT NOT NULL, path TEXT NOT NULL, version INTEGER NOT NULL,
+          role TEXT NOT NULL, actor TEXT NOT NULL, stage TEXT NOT NULL, reason TEXT NOT NULL,
+          idempotencyKey TEXT NOT NULL, createdAt TEXT NOT NULL, UNIQUE(sessionId, idempotencyKey),
+          FOREIGN KEY(sessionId, path, version) REFERENCES files(sessionId, path, version)
+        );
+        CREATE TABLE IF NOT EXISTS session_history (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT, sessionId TEXT NOT NULL REFERENCES sessions, type TEXT NOT NULL,
+          path TEXT, version INTEGER NOT NULL, publicationId TEXT REFERENCES publications, actor TEXT, stage TEXT,
+          reason TEXT, createdAt TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS session_history_cursor ON session_history(sessionId, seq);
+        `);
+        if (backfill) this.db.exec(`
+          INSERT INTO session_history(sessionId, type, path, version, createdAt)
+          SELECT sessionId, type, path, version, updatedAt FROM (
+            SELECT sessionId, 'workspace_write' AS type, path, version, updatedAt FROM files
+            UNION ALL SELECT sessionId, 'note_edit', NULL, version, updatedAt FROM notes WHERE version > 1
+          ) ORDER BY updatedAt, sessionId, type, path, version
+        `);
+      });
     } catch (error) {
       this.db.close();
       throw error;
@@ -187,6 +247,8 @@ export class SessionStore {
           }
           const key = this.db.prepare("SELECT idempotencyKey FROM sessions WHERE sessionId = ?").get(sessionId)!;
           this.db.prepare("INSERT INTO deleted_creation_keys VALUES (?)").run(createHash("sha256").update(String(key.idempotencyKey)).digest("hex"));
+          this.db.prepare("DELETE FROM session_history WHERE sessionId = ?").run(sessionId);
+          this.db.prepare("DELETE FROM publications WHERE sessionId = ?").run(sessionId);
           this.db.prepare("DELETE FROM files WHERE sessionId = ?").run(sessionId);
           this.db.prepare("DELETE FROM notes WHERE sessionId = ?").run(sessionId);
           this.db.prepare("DELETE FROM sessions WHERE sessionId = ?").run(sessionId);
@@ -247,8 +309,9 @@ export class SessionStore {
     this.db.prepare("DELETE FROM execution.atk_durable_runs WHERE run_id = ?").run(runId);
   }
 
-  note(input: {sessionId: string; expectedVersion: number; summary: string; nextAction: string}): SessionRecord {
+  note(input: Attribution & {sessionId: string; expectedVersion: number; summary: string; nextAction: string}): SessionRecord {
     object(input);
+    validateAttribution(input);
     const {sessionId, expectedVersion, summary, nextAction} = input;
     integer(expectedVersion, "expectedVersion", 1);
     string(summary, "summary", 65536, true);
@@ -258,10 +321,13 @@ export class SessionStore {
       if (current.version !== expectedVersion) {
         const previous = this.db.prepare("SELECT " + columns + sessions + "WHERE s.sessionId = ? AND n.version = ?")
           .get(sessionId, expectedVersion + 1) as unknown as SessionRecord | undefined;
-        if (previous?.summary === summary && previous.nextAction === nextAction) return previous;
+        if (previous?.summary === summary && previous.nextAction === nextAction &&
+            this.sameAttribution(input, "note_edit", null, previous.version)) return previous;
         conflict(current.version);
       }
-      this.db.prepare("INSERT INTO notes VALUES (?, ?, ?, ?, ?)").run(sessionId, expectedVersion + 1, summary, nextAction, new Date().toISOString());
+      const updatedAt = new Date().toISOString();
+      this.db.prepare("INSERT INTO notes VALUES (?, ?, ?, ?, ?)").run(sessionId, expectedVersion + 1, summary, nextAction, updatedAt);
+      this.recordEvent(input, "note_edit", null, expectedVersion + 1, null, updatedAt);
       return this.get(sessionId);
     });
   }
@@ -273,8 +339,9 @@ export class SessionStore {
       .all(sessionId) as unknown as SessionFileMetadata[];
   }
 
-  writeFile(input: {sessionId: string; path: string; expectedVersion: number; content: string}): SessionFileMetadata {
+  writeFile(input: Attribution & {sessionId: string; path: string; expectedVersion: number; content: string}): SessionFileMetadata {
     object(input);
+    validateAttribution(input);
     const {sessionId, path, expectedVersion, content} = input;
     filePath(path);
     integer(expectedVersion, "expectedVersion", 0);
@@ -286,7 +353,7 @@ export class SessionStore {
       if (current !== expectedVersion) {
         const existing = this.db.prepare("SELECT " + metadata + " FROM files WHERE sessionId = ? AND path = ? AND version = ? AND content = ?")
           .get(sessionId, path, expectedVersion + 1, content) as unknown as SessionFileMetadata | undefined;
-        if (existing) return existing;
+        if (existing && this.sameAttribution(input, "workspace_write", path, existing.version)) return existing;
         conflict(current);
       }
       const version = expectedVersion + 1;
@@ -294,8 +361,86 @@ export class SessionStore {
       const size = Buffer.byteLength(content);
       const updatedAt = new Date().toISOString();
       this.db.prepare("INSERT INTO files VALUES (?, ?, ?, ?, ?, ?, ?)").run(sessionId, path, version, sha256, size, updatedAt, content);
+      this.recordEvent(input, "workspace_write", path, version, null, updatedAt);
       return {path, version, sha256, size, updatedAt};
     });
+  }
+
+  private sameAttribution(input: Attribution & {sessionId: string}, type: SessionHistoryEvent["type"],
+    path: string | null, version: number): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM session_history WHERE sessionId = ? AND type = ?
+      AND path IS ? AND version = ? AND actor IS ? AND stage IS ? AND reason IS ?`)
+      .get(input.sessionId, type, path, version, input.actor ?? null, input.stage ?? null, input.reason ?? null);
+  }
+
+  private recordEvent(input: Attribution & {sessionId: string}, type: SessionHistoryEvent["type"],
+    path: string | null, version: number, publicationId: string | null, createdAt: string): void {
+    this.db.prepare(`INSERT INTO session_history(sessionId, type, path, version, publicationId, actor, stage, reason, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.sessionId, type, path, version, publicationId,
+        input.actor ?? null, input.stage ?? null, input.reason ?? null, createdAt);
+  }
+
+  publish(input: Required<Attribution> & {sessionId: string; path: string; version: number;
+    role: SessionPublication["role"]; idempotencyKey: string}): SessionPublication {
+    object(input);
+    validateAttribution(input, true);
+    const {sessionId, path, version, role, actor, stage, reason, idempotencyKey} = input;
+    filePath(path);
+    integer(version, "version", 1);
+    string(idempotencyKey, "idempotencyKey", 512);
+    if (role !== "intermediate" && role !== "final") invalid("role must be intermediate or final.");
+    return this.transaction(() => {
+      this.get(sessionId);
+      const existing = this.db.prepare(publicationQuery() + " WHERE p.sessionId = ? AND p.idempotencyKey = ?")
+        .get(sessionId, idempotencyKey) as unknown as SessionPublication | undefined;
+      if (existing) {
+        if (existing.path === path && existing.version === version && existing.role === role &&
+            existing.actor === actor && existing.stage === stage && existing.reason === reason) return existing;
+        throw new McpWorkflowError("IDEMPOTENCY_CONFLICT", "The publication key already identifies a different request.");
+      }
+      const file = this.db.prepare("SELECT sha256, size FROM files WHERE sessionId = ? AND path = ? AND version = ?")
+        .get(sessionId, path, version) as {sha256: string; size: number} | undefined;
+      if (!file) throw new McpWorkflowError("FILE_NOT_FOUND", "File or requested version does not exist.");
+      const publicationId = randomUUID();
+      const createdAt = new Date().toISOString();
+      this.db.prepare("INSERT INTO publications VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(publicationId, sessionId, path, version, role, actor, stage, reason, idempotencyKey, createdAt);
+      this.recordEvent(input, "artifact_publish", path, version, publicationId, createdAt);
+      return {publicationId, sessionId, path, version, role, actor, stage, reason, ...file, createdAt};
+    });
+  }
+
+  listPublications(sessionId: string): SessionPublication[] {
+    this.get(sessionId);
+    return this.db.prepare(publicationQuery() + " WHERE p.sessionId = ? ORDER BY p.rowid")
+      .all(sessionId) as unknown as SessionPublication[];
+  }
+
+  readPublication(input: {sessionId: string; publicationId: string}): SessionPublication & {content: string} {
+    object(input);
+    const {sessionId, publicationId} = input;
+    this.get(sessionId);
+    string(publicationId, "publicationId", 256);
+    const row = this.db.prepare(publicationQuery(true) + " WHERE p.sessionId = ? AND p.publicationId = ?")
+      .get(sessionId, publicationId);
+    if (!row) throw new McpWorkflowError("ARTIFACT_NOT_FOUND", "Publication does not exist in this session.");
+    return row as unknown as SessionPublication & {content: string};
+  }
+
+  history(input: {sessionId: string; beforeSeq?: number; limit?: number}): {events: SessionHistoryEvent[]; nextBeforeSeq: number | null} {
+    object(input);
+    const {sessionId, beforeSeq, limit = 25} = input;
+    this.get(sessionId);
+    if (beforeSeq !== undefined) integer(beforeSeq, "beforeSeq", 1);
+    integer(limit, "limit", 1, 100);
+    const events = this.db.prepare(`SELECT h.*, p.role, f.sha256 FROM session_history h
+      LEFT JOIN publications p ON p.publicationId = h.publicationId
+      LEFT JOIN files f ON f.sessionId = h.sessionId AND f.path = h.path AND f.version = h.version
+      WHERE h.sessionId = ? ` + (beforeSeq === undefined ? "" : "AND h.seq < ? ") + "ORDER BY h.seq DESC LIMIT ?")
+      .all(sessionId, ...(beforeSeq === undefined ? [] : [beforeSeq]), limit + 1) as unknown as SessionHistoryEvent[];
+    const hasMore = events.length > limit;
+    if (hasMore) events.pop();
+    return {events, nextBeforeSeq: hasMore ? events[events.length - 1]!.seq : null};
   }
 
   readFile(input: {sessionId: string; path: string; version?: number}): SessionFile {

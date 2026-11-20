@@ -14,7 +14,7 @@ npm install agentic-task-kit
 
 ## 현재 포함 범위
 
-- `atk-mcp serve`로 에이전트와 사람이 공유하는 작업 세션 서비스를 실행합니다. 로컬 웹에서 세션 전체 목록을 열고 인계 메모, 작업 파일, 진행 단계와 산출물을 조회하거나 세션을 삭제할 수 있습니다. 에이전트는 원격 MCP로 같은 세션을 이어갑니다. [서비스 실행과 재접속](./docs/session-service.md)
+- Windows x64 ZIP의 `start-atk.cmd` 또는 SDK의 `atk-mcp serve --state ./data`로 작업 세션 서비스를 실행합니다. 에이전트는 MCP로 파일의 특정 버전을 중간·최종 산출물로 발행하고 작성자·단계·변경 사유를 기록합니다. 웹에서는 같은 발행본과 이력을 조회합니다. [서비스 실행과 인계 예제](./docs/session-service.md)
 
 - 독립 파이프라인 SDK를 로컬 함수 또는 stdio MCP 서버로 실행합니다. `atk-mcp init` 스타터, 조건 분기·병렬 합류, 에이전트 계획 생성·검증·재개를 지원합니다. [SDK 시작하기](./docs/pipeline-sdk.md)
 - sequential workflow engine

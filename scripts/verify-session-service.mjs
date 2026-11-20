@@ -22,8 +22,8 @@ function node(args, cwd) {
   return execFileSync(process.execPath, args, {cwd, encoding: "utf8", timeout: 240_000, windowsHide: true});
 }
 
-async function serve() {
-  const proc = spawn(process.execPath, [cli, "serve", "--config", "atk-mcp.json", "--port", "0"], {
+async function serve(options = ["--config", "atk-mcp.json"]) {
+  const proc = spawn(process.execPath, [cli, "serve", ...options, "--port", "0"], {
     cwd: app, windowsHide: true, stdio: ["ignore", "ignore", "pipe"], env: {...process.env, ATK_SERVICE_TOKEN: token},
   });
   const closed = new Promise(resolve => proc.once("close", resolve));
@@ -92,11 +92,106 @@ async function waitFor(call, sessionId, status) {
   throw new Error("Timed out waiting for " + status + ". Last context: " + JSON.stringify(ctx));
 }
 
+async function standaloneAcceptance() {
+  const options = ["--state", join(temp, "standalone")];
+  let origin = await serve(options);
+  let call = await connect(origin);
+  const create = title => call("session_create", {title, goal:"Review output", idempotencyKey:title});
+  const {sessionId, version:sessionVersion} = await create("Package review");
+  const other = await create("Independent session");
+  const handoff = {actor:"coordinator", stage:"handoff", reason:"Prepare independent review"};
+  await call("session_note", {sessionId, expectedVersion:sessionVersion, summary:"Ready for review", nextAction:"Read the draft", ...handoff});
+  const path = "reports/검토.html";
+  const revisions = ["<p>초안</p>", "<p>확정</p>", "<p>후속 작업</p>"];
+  const publications = [];
+  for (const [index, content] of revisions.entries()) {
+    const version = index + 1;
+    const actor = index === 0 ? "writer" : "reviewer";
+    const stage = index === 0 ? "draft" : "review";
+    const reason = "Save revision " + version;
+    const write = {sessionId, path, content, expectedVersion:index, actor, stage, reason};
+    const saved = await call("workspace_write", write);
+    assert.equal(saved.sha256, digest(content));
+    if (version > 2) continue;
+    const role = version === 1 ? "intermediate" : "final";
+    const publish = {sessionId, path, version, role, actor, stage, reason, idempotencyKey:"publish-" + version};
+    const publication = await call("artifact_publish", publish);
+    assert.deepEqual(await call("artifact_publish", publish), publication);
+    for (const [key, value] of Object.entries({sessionId, path, version, role, actor, stage, reason})) {
+      assert.equal(publication[key], value, key);
+    }
+    assert.equal(publication.sha256, digest(content));
+    const conflict = await post(origin + "/api/tools/artifact_publish", {...publish, reason:"Different request"});
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).error.code, "IDEMPOTENCY_CONFLICT");
+    publications.push(publication);
+    if (version === 1) {
+      call = await connect(origin);
+      const handoffContext = await call("session_context", {sessionId});
+      assert.deepEqual(handoffContext.workspacePublications, [publication]);
+    }
+  }
+  await stop();
+  origin = await serve(options);
+  call = await connect(origin);
+  const ctx = await call("session_context", {sessionId});
+  const listed = (await call("artifact_list", {sessionId})).publications;
+  const ids = rows => rows.map(row => row.publicationId).sort();
+  assert.deepEqual(ids(listed), ids(publications));
+  assert.deepEqual(ids(ctx.workspacePublications), ids(publications));
+  for (const [index, publication] of publications.entries()) {
+    const args = {sessionId, publicationId:publication.publicationId};
+    const read = await web(origin, "artifact_read", args);
+    assert.equal(read.content, revisions[index]);
+    assert.equal(digest(read.content), publication.sha256);
+    assert.equal((await post(origin + "/api/tools/artifact_read", {...args, sessionId:other.sessionId})).status, 404);
+  }
+  const all = [];
+  let beforeSeq;
+  do {
+    const page = await call("session_history", {sessionId, beforeSeq, limit:2});
+    assert.ok(page.events.length <= 2);
+    for (const event of page.events) {
+      assert.ok(!all.length || event.seq < all.at(-1).seq);
+      all.push(event);
+    }
+    if (page.nextBeforeSeq !== null) {
+      assert.ok(Number.isInteger(page.nextBeforeSeq));
+      assert.ok(beforeSeq === undefined || page.nextBeforeSeq < beforeSeq);
+    }
+    beforeSeq = page.nextBeforeSeq;
+  } while (beforeSeq !== null);
+  const notes = all.filter(event => event.type === "note_edit");
+  assert.equal(notes.length, 1);
+  for (const [key, value] of Object.entries(handoff)) assert.equal(notes[0][key], value);
+  assert.equal(all.filter(event => event.type === "workspace_write").length, 3);
+  assert.equal(all.filter(event => event.type === "artifact_publish").length, 2);
+  for (const event of all.filter(row => row.type === "workspace_write" || row.type === "artifact_publish")) {
+    assert.equal(event.path, path);
+    assert.equal(event.sha256, digest(revisions[event.version - 1]));
+    assert.equal(event.actor, event.version === 1 ? "writer" : "reviewer");
+    assert.equal(event.stage, event.version === 1 ? "draft" : "review");
+    assert.equal(event.reason, "Save revision " + event.version);
+  }
+  await web(origin, "session_delete", {sessionId, expectedVersion:ctx.session.version});
+  for (const [tool, args] of [["artifact_list", {sessionId}], ["session_history", {sessionId}],
+    ["artifact_read", {sessionId, publicationId:publications[0].publicationId}]]) {
+    assert.equal((await post(origin + "/api/tools/" + tool, args)).status, 404);
+  }
+  assert.deepEqual((await call("session_list", {})).sessions.map(row => row.sessionId), [other.sessionId]);
+  await stop();
+}
+
 try {
   await mkdir(app);
   await writeFile(join(app,"package.json"), JSON.stringify({name:"session-regression",version:"1.0.0",private:true,type:"module"}));
   const [packed] = JSON.parse(node([npm, "pack", "./.npm-package", "--pack-destination", temp, "--json"], root));
   node([npm, "install", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", join(temp, packed.filename)], app);
+  await writeFile(join(app, "empty.json"), JSON.stringify({stateDirectory:"./empty-state", profiles:{}}));
+  const emptyOrigin = await serve(["--config", "empty.json"]);
+  assert.deepEqual((await web(emptyOrigin, "session_list", {})).sessions, []);
+  await stop();
+  await standaloneAcceptance();
   await writeFile(join(app, "pipeline.mjs"), `
 import { appendFileSync, existsSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
